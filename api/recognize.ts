@@ -122,10 +122,11 @@ function buildMyScriptRequest(b: ClientBody) {
       text: { guides: { enable: false } },
       export: {
         jiix: {
+          // Word bounding boxes are enough to map words back to strokes. Not
+          // echoing every stroke point keeps the response small and fast.
           'bounding-box': true,
-          strokes: true,
-          ids: true,
-          text: { words: true, chars: false, lines: true },
+          strokes: false,
+          text: { words: true, chars: false },
         },
       },
     },

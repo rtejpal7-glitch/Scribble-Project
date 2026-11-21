@@ -1,4 +1,4 @@
-import type { CorrectionMemoryEntry, PageText, TextBlock } from '../types/document';
+import type { BlockWord, CorrectionMemoryEntry, PageText, TextBlock } from '../types/document';
 import type { RecognitionStatus, RecognizedLine } from '../types/recognition';
 import { createId } from '../utils/id';
 import { jaccard, strokeSignature } from '../utils/signature';
@@ -40,6 +40,28 @@ export function emptyPageText(): PageText {
     recognizedSignature: null,
     provider: null,
   };
+}
+
+const MAX_ALTERNATIVES = 4;
+
+function blockWords(line: RecognizedLine): BlockWord[] {
+  return line.words.map((w) => {
+    const seen = new Set([w.text]);
+    const alternatives: string[] = [];
+    for (const c of w.candidates ?? []) {
+      const t = c.trim();
+      if (!t || seen.has(t)) continue;
+      seen.add(t);
+      alternatives.push(t);
+      if (alternatives.length >= MAX_ALTERNATIVES) break;
+    }
+    return { text: w.text, alternatives };
+  });
+}
+
+/** Line text with word `index` replaced by `replacement`. */
+export function replaceWord(words: BlockWord[], index: number, replacement: string): string {
+  return words.map((w, i) => (i === index ? replacement : w.text)).join(' ');
 }
 
 function lineSignature(line: RecognizedLine, index: number): string {
@@ -88,6 +110,7 @@ export function buildBlocks(
       recognizedText: line.text,
       paragraphStart: paragraphs[i],
       bbox: line.bbox,
+      words: blockWords(line),
     };
 
     // 1. Identical stroke set → same line, keep its state (correction / conflict).

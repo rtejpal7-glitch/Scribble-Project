@@ -143,3 +143,37 @@ export function countPoints(strokes: Stroke[]): number {
   for (const s of strokes) n += s.x.length;
   return n;
 }
+
+/**
+ * Ramer–Douglas–Peucker simplification. Returns the indices of the points to
+ * keep (first and last are always kept). Apple Pencil reports ~240 points per
+ * second; most are redundant for recognition, and sending fewer points makes
+ * requests smaller and recognition faster without changing letter shapes.
+ */
+export function simplifyIndices(xs: readonly number[], ys: readonly number[], tolerance: number): number[] {
+  const n = xs.length;
+  if (n <= 2) return Array.from({ length: n }, (_, i) => i);
+  const keep = new Uint8Array(n);
+  keep[0] = keep[n - 1] = 1;
+  const tol2 = tolerance * tolerance;
+  const stack: Array<[number, number]> = [[0, n - 1]];
+  while (stack.length) {
+    const [a, b] = stack.pop()!;
+    let maxD = -1;
+    let idx = -1;
+    for (let i = a + 1; i < b; i++) {
+      const d = distSqToSegment(xs[i], ys[i], xs[a], ys[a], xs[b], ys[b]);
+      if (d > maxD) {
+        maxD = d;
+        idx = i;
+      }
+    }
+    if (idx !== -1 && maxD > tol2) {
+      keep[idx] = 1;
+      stack.push([a, idx], [idx, b]);
+    }
+  }
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) if (keep[i]) out.push(i);
+  return out;
+}

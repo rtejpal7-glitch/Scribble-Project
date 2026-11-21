@@ -37,6 +37,26 @@ export interface RecognitionManagerOptions {
 }
 
 const RETRY_DELAYS = [3000, 10000, 30000, 60000];
+/**
+ * Mobile networks and Safari's connection reuse occasionally drop a request
+ * ("Load failed"). These quick retries happen while the status still shows
+ * "Converting…"; the user only sees a warning if they all fail.
+ */
+const QUICK_RETRY_DELAYS = [350, 1200];
+
+function isTransient(e: unknown): boolean {
+  return e instanceof RecognitionError && (e.kind === 'network' || (e.kind === 'server' && e.retryable));
+}
+
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const t = setTimeout(resolve, ms);
+    signal.addEventListener('abort', () => {
+      clearTimeout(t);
+      resolve();
+    }, { once: true });
+  });
+}
 const CACHE_PER_PAGE = 40;
 
 /**
@@ -79,6 +99,16 @@ export class RecognitionManager {
 
   getAvailability() {
     return this.availability;
+  }
+
+  /** Called when the user starts writing: lets the provider wake its backend early. */
+  warmUp() {
+    if (this.disposed || !this.online) return;
+    try {
+      this.opts.provider.warmUp?.();
+    } catch {
+      /* best effort */
+    }
   }
 
   setDebounce(ms: number) {
@@ -273,7 +303,19 @@ export class RecognitionManager {
         language: 'en_US' as const,
         signal: controller.signal,
       };
-      const result = await this.opts.provider.recognizePage(req);
+      let result: RecognitionResult;
+      for (let attempt = 0; ; attempt++) {
+        try {
+          result = await this.opts.provider.recognizePage(req);
+          break;
+        } catch (e) {
+          if (!isTransient(e) || attempt >= QUICK_RETRY_DELAYS.length || !this.online) throw e;
+          await sleep(QUICK_RETRY_DELAYS[attempt], controller.signal);
+          if (this.disposed || controller.signal.aborted) return;
+          const cur = this.opts.getPage(pageId);
+          if (!cur || cur.revision !== snap.revision) return; // newer ink has its own schedule
+        }
+      }
       if (this.disposed) return;
       this.putCache(pageId, signature, result);
       this.retryCounts.delete(pageId);

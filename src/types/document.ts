@@ -21,6 +21,14 @@ export interface TextBlock {
   /** True if a paragraph starts at this line (larger vertical gap above it). */
   paragraphStart: boolean;
   bbox: BBox | null;
+  /** Recognised words with the engine's alternative readings (for tap-to-fix). */
+  words?: BlockWord[];
+}
+
+export interface BlockWord {
+  text: string;
+  /** Alternatives to `text`, best first (excludes `text` itself). */
+  alternatives: string[];
 }
 
 export interface CorrectionMemoryEntry {

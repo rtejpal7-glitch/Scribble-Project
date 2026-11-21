@@ -121,4 +121,22 @@ describe('RecognitionManager', () => {
     expect(updates.at(-1)).toMatchObject({ status: 'error', error: 'bad keys' });
     vi.useRealTimers();
   });
+
+  it('retries transient failures silently before reporting', async () => {
+    vi.useFakeTimers();
+    let n = 0;
+    const p = provider(async () => {
+      if (++n < 3) throw new RecognitionError('network', 'Load failed', true);
+      return 'ok';
+    });
+    const { page, updates, m } = harness(p);
+    page.strokes = [mk('a')];
+    page.revision = 1;
+    m.schedule('p');
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(p.calls).toBe(3);
+    expect(updates.some((u) => u.status === 'pending-offline' || u.status === 'error')).toBe(false);
+    expect(updates.at(-1)?.status).toBe('recognized');
+    vi.useRealTimers();
+  });
 });

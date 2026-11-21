@@ -52,7 +52,7 @@ npm run dev
 | `MYSCRIPT_API_URL` | server, optional | Override endpoint (default `https://cloud.myscript.com/api/v4.0/iink/batch`) |
 | `ALLOWED_ORIGINS` | server, optional | Extra origins allowed to call `/api/recognize` (e.g. ClinicFlow's domain) |
 | `VITE_RECOGNITION_PROVIDER` | client | `myscript` (default) or `none` |
-| `VITE_RECOGNITION_DEBOUNCE_MS` | client | Writing pause before recognition (default `800`) |
+| `VITE_RECOGNITION_DEBOUNCE_MS` | client | Writing pause before recognition (default `500`) |
 
 > ⚠️ Never prefix the MyScript keys with `VITE_`. Vite embeds every `VITE_*` variable into the public JavaScript bundle.
 
@@ -72,7 +72,7 @@ Set-up:
 3. Put them in `.env.local` for local use, and in Vercel → Project → Settings → Environment Variables for deployment.
 4. Restart `npm run dev`. The status bar should read **"MyScript Cloud: connected"**.
 
-**Pricing (verify current terms on https://developer.myscript.com/pricing):** at the time of writing, 2,000 free requests per month, then $10 per 1,000 requests. One request is sent per page after each writing pause (default 800 ms). Undo/redo reuses cached results and makes no new request. To use fewer requests, raise `VITE_RECOGNITION_DEBOUNCE_MS`. For production volume or clinical data-residency requirements, check MyScript's licensing (MyScript Server can be self-hosted; point `MYSCRIPT_API_URL` at it).
+**Pricing (verify current terms on https://developer.myscript.com/pricing):** at the time of writing, 2,000 free requests per month, then $10 per 1,000 requests. One request is sent per page after each writing pause (default 500 ms). Undo/redo reuses cached results and makes no new request. To use fewer requests, raise `VITE_RECOGNITION_DEBOUNCE_MS`. For production volume or clinical data-residency requirements, check MyScript's licensing (MyScript Server can be self-hosted; point `MYSCRIPT_API_URL` at it).
 
 > **Patient data note for ClinicFlow:** recognition sends handwriting strokes to MyScript's cloud. Before using this with real patient notes, review MyScript's data-processing terms against your regulatory obligations, or plan for an on-device or self-hosted engine (see §9).
 
@@ -163,6 +163,14 @@ const snap = ref.current?.getSnapshot();
 ```
 
 Implement `StorageAdapter` (`listDocuments`, `loadDocument`, `saveDocument`, `deleteDocument`) to save to ClinicFlow's backend. Implement `HandwritingRecognitionProvider` to swap engines. The module has no dependency on patients, appointments, doctors, prescriptions or billing.
+
+### Speed and accuracy notes
+
+- **Where the time goes:** the writing pause (500 ms), the round trip to MyScript Cloud (its servers are in the US, so add about 0.3–0.6 s from South Asia), and MyScript's processing time. The Vercel function is pinned to `iad1` (US East) to sit next to MyScript. Requests carry simplified stroke points without pressure, and responses don't echo stroke points back, which keeps both small.
+- **Cold starts:** the app wakes the recognition function as soon as the pencil touches the page, so the real request after the pause doesn't wait for a cold start.
+- **Transient failures:** network or 5xx errors are retried quietly twice (after 0.35 s and 1.2 s) before any warning appears.
+- **Accuracy:** pencil points are stored exactly as the device reports them, with no smoothing. Each line has a ✨ button that shows MyScript's alternative readings for each word, so you can fix a misread word with two taps and no keyboard.
+- **True as-you-write recognition** would need either MyScript's WebSocket (interactive) API through a persistent server, since Vercel functions can't hold WebSockets, or an on-device engine. Both are possible later behind `HandwritingRecognitionProvider`.
 
 ## 9. Known limitations
 

@@ -221,3 +221,12 @@ export const PanelRightIcon = (p: IconProps) => (
     <path d="M15 3v18" />
   </Svg>
 );
+export const SparklesIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M11 4.5 12.7 9.3 17.5 11 12.7 12.7 11 17.5 9.3 12.7 4.5 11 9.3 9.3Z" />
+    <path d="M19 3v4" />
+    <path d="M21 5h-4" />
+    <path d="M18 17v3" />
+    <path d="M19.5 18.5h-3" />
+  </Svg>
+);

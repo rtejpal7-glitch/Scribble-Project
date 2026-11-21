@@ -43,7 +43,7 @@ export interface HandwritingEditorProps {
   storage?: StorageAdapter;
   /** Recognition engine. Defaults to the one selected by VITE_RECOGNITION_PROVIDER. */
   recognitionProvider?: HandwritingRecognitionProvider;
-  /** Writing pause before recognition runs (ms). Default 800. */
+  /** Writing pause before recognition runs (ms). Default 500. */
   debounceMs?: number;
   /** Title used when the document does not exist yet. */
   initialTitle?: string;
@@ -109,7 +109,7 @@ function EditorInner(props: HandwritingEditorProps) {
   const online = useOnlineStatus();
 
   const { state, dispatch, stateRef, loadState, loadError } = useHandwriting(props.documentId, storage, props.initialTitle);
-  const { availability, retry } = useRecognition({ provider, debounceMs, online, state, stateRef, dispatch });
+  const { availability, retry, manager } = useRecognition({ provider, debounceMs, online, state, stateRef, dispatch });
 
   const cbs = useRef(props);
   cbs.current = props;
@@ -373,6 +373,7 @@ function EditorInner(props: HandwritingEditorProps) {
           onAddPage={addPage}
           onCurrentPageChange={setCurrentPage}
           onPenDetected={() => setPenSeen(true)}
+          onInkStart={() => manager.current?.warmUp()}
           scrollRequest={scrollRequest}
           fitWidthNonce={fitNonce}
         />

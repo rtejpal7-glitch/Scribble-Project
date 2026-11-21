@@ -5,7 +5,8 @@ import type { Stroke } from '../src/types/handwriting';
 import type { RecognizedLine } from '../src/types/recognition';
 import { strokeSignature } from '../src/utils/signature';
 import { pageFinalText } from '../src/sync/textSync';
-import { splitStrokeByCircle } from '../src/utils/strokeUtils';
+import { simplifyIndices, splitStrokeByCircle } from '../src/utils/strokeUtils';
+import { replaceWord } from '../src/sync/textSync';
 
 let seq = 0;
 function stroke(pageId: string, x0: number, y0: number): Stroke {
@@ -32,7 +33,7 @@ function recognize(strokes: Stroke[], words: Record<string, string>): Recognized
     .map(([y, ss]) => ({
       text: ss.map((s) => words[s.id]).join(' '),
       strokeIds: ss.map((s) => s.id),
-      words: ss.map((s) => ({ text: words[s.id], strokeIds: [s.id] })),
+      words: ss.map((s) => ({ text: words[s.id], strokeIds: [s.id], candidates: [words[s.id], words[s.id] + 'x', 'alt'] })),
       bbox: { minX: 0, minY: y - 10, maxX: 300, maxY: y + 10 },
     }));
 }
@@ -198,5 +199,23 @@ describe('partial erasing', () => {
     expect(Math.max(...pieces[0].x)).toBeLessThan(41);
     expect(Math.min(...pieces[1].x)).toBeGreaterThan(59);
     expect(splitStrokeByCircle(s, 50, 50, 5)).toBeNull();
+  });
+});
+
+describe('word alternatives', () => {
+  it('keeps alternatives per word and replaces a single word', () => {
+    const { state } = setup();
+    const block = state.doc!.pages[0].text.blocks[0];
+    expect(block.words?.map((w) => w.text)).toEqual(['hello', 'world']);
+    expect(block.words?.[1].alternatives).toEqual(['worldx', 'alt']);
+    expect(replaceWord(block.words!, 1, 'there')).toBe('hello there');
+  });
+});
+
+describe('point simplification', () => {
+  it('drops collinear points but keeps corners', () => {
+    const xs = [0, 1, 2, 3, 4, 4, 4];
+    const ys = [0, 0, 0, 0, 0, 1, 2];
+    expect(simplifyIndices(xs, ys, 0.5)).toEqual([0, 4, 6]);
   });
 });

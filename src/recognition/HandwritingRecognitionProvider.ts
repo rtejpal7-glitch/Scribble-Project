@@ -35,5 +35,8 @@ export interface HandwritingRecognitionProvider {
    */
   recognizeIncremental?(request: IncrementalRecognitionRequest): Promise<RecognitionResult>;
 
+  /** Optional: prepare the engine while the user is writing (e.g. wake a server). */
+  warmUp?(): void;
+
   dispose?(): void;
 }

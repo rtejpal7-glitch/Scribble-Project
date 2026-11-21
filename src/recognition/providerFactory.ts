@@ -21,5 +21,5 @@ export function createDefaultProvider(): HandwritingRecognitionProvider {
 
 export function defaultDebounceMs(): number {
   const v = Number(import.meta.env.VITE_RECOGNITION_DEBOUNCE_MS);
-  return Number.isFinite(v) && v >= 200 && v <= 5000 ? v : 800;
+  return Number.isFinite(v) && v >= 200 && v <= 5000 ? v : 500;
 }

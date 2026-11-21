@@ -8,6 +8,10 @@ import {
 } from '../types/recognition';
 import { parseJiixText, type JiixDocument } from './jiix';
 import { strokeSignature } from '../utils/signature';
+import { simplifyIndices } from '../utils/strokeUtils';
+
+/** Simplification tolerance in page units (~0.13 mm): invisible, but removes most redundant points. */
+const SIMPLIFY_TOLERANCE = 0.5;
 
 export interface MyScriptProviderOptions {
   /** Same-origin proxy that holds the MyScript keys. Default `/api/recognize`. */
@@ -50,10 +54,25 @@ export class MyScriptProvider implements HandwritingRecognitionProvider {
 
   constructor(options: MyScriptProviderOptions = {}) {
     this.endpoint = options.endpoint ?? '/api/recognize';
-    this.timeoutMs = options.timeoutMs ?? 20000;
+    this.timeoutMs = options.timeoutMs ?? 12000;
+  }
+
+  private lastContact = 0;
+
+  /**
+   * Wakes the serverless function (and the TLS connection) while the user is
+   * still writing, so the real request after the writing pause doesn't pay
+   * for a cold start. Cheap GET, at most once every 45 s.
+   */
+  warmUp(): void {
+    const now = Date.now();
+    if (now - this.lastContact < 45_000) return;
+    this.lastContact = now;
+    fetch(this.endpoint, { method: 'GET', headers: { Accept: 'application/json' }, cache: 'no-store' }).catch(() => undefined);
   }
 
   async checkAvailability(): Promise<ProviderAvailability> {
+    this.lastContact = Date.now();
     try {
       const res = await fetch(this.endpoint, { method: 'GET', headers: { Accept: 'application/json' } });
       if (res.status === 404) {
@@ -103,14 +122,14 @@ export class MyScriptProvider implements HandwritingRecognitionProvider {
       width: Math.round(request.width),
       height: Math.round(request.height),
       lang: request.language,
+      // Pressure is not used by MyScript text recognition, so it is not sent.
       strokes: request.strokes.map((s) => {
-        const out: ProxyRecognizeBody['strokes'][number] = {
-          x: s.x.map(round2),
-          y: s.y.map(round2),
-          t: s.t.map((t) => Math.max(0, Math.round(t - t0))),
+        const keep = simplifyIndices(s.x, s.y, SIMPLIFY_TOLERANCE);
+        return {
+          x: keep.map((i) => round2(s.x[i])),
+          y: keep.map((i) => round2(s.y[i])),
+          t: keep.map((i) => Math.max(0, Math.round(s.t[i] - t0))),
         };
-        if (s.p) out.p = s.p.map((p) => Math.min(0.99, Math.max(0.01, round2(p))));
-        return out;
       }),
     };
 
@@ -119,6 +138,7 @@ export class MyScriptProvider implements HandwritingRecognitionProvider {
     request.signal?.addEventListener('abort', onAbort);
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     let res: Response;
+    this.lastContact = Date.now();
     try {
       res = await fetch(this.endpoint, {
         method: 'POST',

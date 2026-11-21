@@ -24,6 +24,7 @@ export interface HandwritingCanvasProps {
   onAddPage(): void;
   onCurrentPageChange(index: number): void;
   onPenDetected(): void;
+  onInkStart?(): void;
   /** Change `nonce` to scroll to a page. */
   scrollRequest: { index: number; nonce: number } | null;
   /** Change to fit the page width to the panel. */
@@ -276,6 +277,7 @@ export function HandwritingCanvas(props: HandwritingCanvasProps) {
               onAddStroke={props.onAddStroke}
               onErase={props.onErase}
               onPenDetected={props.onPenDetected}
+              onInkStart={props.onInkStart}
             />
             <div className="mt-2 text-[11px] font-medium tracking-wide text-slate-400">
               Page {i + 1} of {pages.length}

@@ -26,7 +26,6 @@ import { createId } from '../../utils/id';
 /** Max backing-store pixels per page canvas (iOS Safari caps canvas memory). */
 const MAX_CANVAS_PIXELS = 10_000_000;
 const MIN_POINT_DISTANCE = 0.35;
-const SMOOTHING = 0.62; // 1 = raw input, lower = smoother but more lag
 
 export interface InkPageProps {
   page: PageData;
@@ -41,6 +40,8 @@ export interface InkPageProps {
   onAddStroke(pageId: string, stroke: Stroke): void;
   onErase(pageId: string, removed: Stroke[], added: Stroke[]): void;
   onPenDetected(): void;
+  /** A pen / eraser gesture started (used to warm up recognition). */
+  onInkStart?(): void;
 }
 
 interface DrawState {
@@ -170,15 +171,15 @@ function InkPageImpl(props: InkPageProps) {
     return [(e.clientX - rect.left) / z, (e.clientY - rect.top) / z];
   };
 
-  const addPoint = (st: DrawState, ev: PointerEvent, raw = false) => {
+  // Points are stored exactly as the device reports them. Input smoothing would
+  // lag behind the pen and round off small details (a closed loop in "d" can
+  // turn into "cl"), which hurts recognition. The quadratic renderer already
+  // draws smooth curves through the raw points.
+  const addPoint = (st: DrawState, ev: PointerEvent) => {
     const s = st.stroke;
-    let [x, y] = toPage(ev, st.rect);
+    const [x, y] = toPage(ev, st.rect);
     st.lastRaw = [x, y];
     const n = s.x.length;
-    if (n > 0 && !raw) {
-      x = s.x[n - 1] + (x - s.x[n - 1]) * SMOOTHING;
-      y = s.y[n - 1] + (y - s.y[n - 1]) * SMOOTHING;
-    }
     if (n > 0 && Math.hypot(x - s.x[n - 1], y - s.y[n - 1]) < MIN_POINT_DISTANCE) return;
     const t = Math.round(st.epoch0 + (ev.timeStamp - st.ts0));
     s.x.push(x);
@@ -267,6 +268,7 @@ function InkPageImpl(props: InkPageProps) {
       p.penDown.current = true;
       p.onPenDetected();
     }
+    p.onInkStart?.();
     const rect = canvasRef.current?.getBoundingClientRect() ?? surfaceRef.current!.getBoundingClientRect();
     const erasing = p.tool.tool === 'eraser' || (e.buttons & 32) !== 0 || e.button === 5;
 
@@ -310,7 +312,7 @@ function InkPageImpl(props: InkPageProps) {
       },
     };
     gesture.current = st;
-    addPoint(st, native, true);
+    addPoint(st, native);
   };
 
   const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
