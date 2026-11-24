@@ -261,6 +261,8 @@ function EditorInner(props: HandwritingEditorProps) {
   /* --------------------------- keyboard shortcuts --------------------------- */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Ignore shortcuts while this editor is hidden (e.g. another workspace tab is shown).
+      if (!rootRef.current || rootRef.current.offsetParent === null) return;
       const t = e.target as HTMLElement | null;
       const typing = !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
       if (typing) return; // native text undo inside text fields

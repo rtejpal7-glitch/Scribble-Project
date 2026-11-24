@@ -1,6 +1,22 @@
-# InkFlow: handwriting-to-text notebook
+# InkFlow: voice and handwriting to text
 
-Write with an Apple Pencil (or a mouse or stylus) on a notebook-style canvas, and see your handwriting turned into editable text in a live side panel. The handwriting engine is a self-contained module (`<HandwritingEditor />`) designed to be embedded later in **ClinicFlow**.
+An input workspace with two independent tools, built to be embedded later in **ClinicFlow**:
+
+| Tab | What it does | Reusable module |
+|---|---|---|
+| **Voice to Text** | Dictate in Indian English, Hindi or **Hinglish** and see live, editable text | `<VoiceToTextEditor />` (`src/voice-module`) |
+| **Handwriting to Text** | Write with Apple Pencil; handwriting becomes editable text, kept in sync with the ink | `<HandwritingEditor />` (`src/handwriting-module`) |
+
+Switching tabs never loses content (both stay loaded). Only one input runs at a time: leaving the Voice tab pauses a recording.
+
+Voice highlights (details in [§10](#10-voice-to-text)):
+
+- **Hinglish as spoken.** A Whisper model fine-tuned on Hindi–English code-switched speech writes "Patient ko do hafte se itching ho rahi hai" as it was said. No translation.
+- **Private by default.** Speech recognition runs on a **speech server you host** (your PC or a clinic machine). Audio never goes to a third party unless you explicitly switch to the browser engine.
+- **Live text.** Grey provisional words while you speak, confirmed text when you pause. Pause and resume, a timer, a four-stage status, edit, undo/redo, TXT/PDF export that keeps Hindi intact, optional audio retention.
+- **Measure accuracy yourself.** A *Test accuracy* panel (WER/CER) and a batch script for your own recordings.
+
+Handwriting highlights:
 
 - **Digital-ink recognition.** Real stroke data (x, y, timestamps, pressure) is sent to MyScript. No screenshots or OCR.
 - **Ink and text stay in sync.** Erase a word, a line or a page and the matching text disappears. Undo or redo brings back both the ink and its text.
@@ -18,6 +34,8 @@ Write with an Apple Pencil (or a mouse or stylus) on a notebook-style canvas, an
 | npm | 10+ (bundled with Node) |
 | MyScript developer account | Free tier: 2,000 recognition requests per month (see §4) |
 | Vercel account | Only for deployment |
+| Python **3.11 or 3.12** | Only for the voice speech server (§10) |
+| NVIDIA GPU (≥ 6 GB VRAM) | Recommended for live voice recognition; a CPU works but is slower (§10.6) |
 
 Windows and VS Code work out of the box. Use PowerShell or the VS Code terminal.
 
@@ -40,8 +58,12 @@ npm run dev
 | `npm run dev:host` | Dev server reachable from other devices on your LAN |
 | `npm run build` | Type-check + production build into `dist/` |
 | `npm run preview` | Serve the production build locally (also with the API) |
-| `npm test` | Unit tests (sync logic, JIIX parsing, recognition manager) |
+| `npm test` | Unit tests (handwriting sync, JIIX parsing, recognition manager, speech segmentation/scoring/transcript) |
 | `npm run typecheck` | TypeScript only |
+| `npm run speech:server` | Start the self-hosted speech server (after its one-time setup, §10.3) |
+| `npm run speech:test` | Speech server tests (no models needed) |
+
+The Handwriting tab works with just `npm install` + `npm run dev`. The Voice tab additionally needs the speech server (§10.3), or the browser engine with explicit consent (§10.2).
 
 ## 3. Environment variables
 
@@ -53,6 +75,9 @@ npm run dev
 | `ALLOWED_ORIGINS` | server, optional | Extra origins allowed to call `/api/recognize` (e.g. ClinicFlow's domain) |
 | `VITE_RECOGNITION_PROVIDER` | client | `myscript` (default) or `none` |
 | `VITE_RECOGNITION_DEBOUNCE_MS` | client | Writing pause before recognition (default `500`) |
+| `VITE_SPEECH_SERVER_URL` | client, optional | Default speech server URL shown in Voice settings (default `http://localhost:8765`). Not secret. |
+
+The speech server has its own settings in `speech-server/.env` (§10.3). The speech server token is **never** put in a `VITE_` variable: each user types it into Voice settings, and it stays in that browser.
 
 > ⚠️ Never prefix the MyScript keys with `VITE_`. Vite embeds every `VITE_*` variable into the public JavaScript bundle.
 
@@ -106,28 +131,43 @@ What to try:
 ## 7. Project structure
 
 ```
-api/recognize.ts                 Vercel Function: validates input, signs with HMAC, calls MyScript
+api/recognize.ts                 Vercel Function: MyScript proxy for handwriting (signs with HMAC)
+speech-server/                   Self-hosted speech recognition (Python, separate from the frontend)
+  server.py                      HTTP API: /v1/health, /v1/transcribe (token auth, CORS, no content logging)
+  engines.py, config.py          faster-whisper engine, one model per language mode
+  evaluate.py, wer.py            batch accuracy test on your own recordings
+  tests/                         server tests (stub engine, no models needed)
+docs/SPEECH_ENGINES.md           engine evaluation (why this engine, alternatives)
 src/
-  handwriting-module/            ← public API for ClinicFlow (HandwritingEditor + exports)
-  types/                         handwriting.ts, recognition.ts, document.ts
+  App.tsx                        tabs + the two workspaces (both kept mounted)
+  handwriting-module/            ← public API: HandwritingEditor
+  voice-module/                  ← public API: VoiceToTextEditor
+  types/                         handwriting.ts, recognition.ts, document.ts, speech.ts
   handwriting/                   inkRenderer (pressure-aware drawing), inkOperations (undo/redo)
-  recognition/                   HandwritingRecognitionProvider (interface), MyScriptProvider,
-                                 UnavailableProvider, RecognitionManager, jiix parser, factory
+  recognition/                   handwriting: provider interface, MyScriptProvider, RecognitionManager, jiix
+    speech/                      SpeechRecognitionProvider (interface), WhisperServerProvider,
+                                 BrowserSpeechProvider, SpeechServerClient, postprocess, evaluation, settings
+      audio/                     AudioCapture (mic → 16 kHz), UtteranceSegmenter (VAD), wav
   sync/textSync.ts               ink ↔ text mapping, corrections, conflicts
-  state/                         editorReducer, documentModel, snapshot
-  storage/                       StorageAdapter interface, IndexedDBStorage, MemoryStorage
-  hooks/                         useHandwriting, useRecognition, useAutosave, useOnlineStatus
+  state/                         editorReducer, documentModel, snapshot, voiceReducer, voiceText
+  storage/                       db (shared IndexedDB v2), IndexedDBStorage (ink), VoiceStorage (voice + audio)
+  hooks/                         useHandwriting, useRecognition, useSpeechRecognition, useVoiceDocument,
+                                 useAutosave (shared), useOnlineStatus
   components/
-    handwriting/                 HandwritingCanvas, InkPage, HandwritingToolbar, PenSettings, EraserTool
+    navigation/WorkspaceTabs.tsx
+    voice/                       VoiceWorkspace, MicrophoneControls, LanguageSelector, TranscriptionPanel,
+                                 RecordingStatus, VoiceSettingsDialog, EvaluationPanel
+    handwriting/                 HandwritingWorkspace, HandwritingCanvas, InkPage, HandwritingToolbar, …
     editor/                      TextOutputPanel, TextBlockEditor, RecognitionStatus
-    layout/                      MainLayout, SplitView
-    documents/                   DocumentManager, PageNavigator
+    layout/                      WorkspaceHeader, SplitView
+    documents/                   DocumentManager (shared by both tabs), PageNavigator
     common/                      icons, dialogs, menu
-  utils/                         strokeUtils, exportUtils, signature, id
-  pwa/registerServiceWorker.ts
+  utils/                         strokeUtils, exportUtils, voiceExport, signature, id
 public/                          sw.js, manifest.webmanifest, icons
 tests/                           unit tests (vitest)
 ```
+
+Voice and handwriting use **separate data models and IndexedDB stores** (`documents` for notebooks; `voiceDocuments` and `voiceAudio` for dictations). Upgrading from the handwriting-only version keeps existing notebooks.
 
 ### How the synchronisation works
 
@@ -162,7 +202,26 @@ const snap = ref.current?.getSnapshot();
 // snap.text                      → whole document, in page order
 ```
 
-Implement `StorageAdapter` (`listDocuments`, `loadDocument`, `saveDocument`, `deleteDocument`) to save to ClinicFlow's backend. Implement `HandwritingRecognitionProvider` to swap engines. The module has no dependency on patients, appointments, doctors, prescriptions or billing.
+Implement `StorageAdapter` (`listDocuments`, `loadDocument`, `saveDocument`, `deleteDocument`) to save to ClinicFlow's backend.
+
+Voice works the same way:
+
+```tsx
+import { VoiceToTextEditor, type VoiceToTextEditorHandle } from '@/voice-module';
+
+<VoiceToTextEditor
+  ref={voiceRef}
+  documentId={`consultation-${consultationId}-dictation`}
+  language="hinglish"                         // 'en-IN' | 'hi-IN' | 'hinglish' (for new documents)
+  active={consultationTab === 'dictation'}    // pauses recording when hidden
+  storage={clinicFlowVoiceStorage}            // optional VoiceStorageAdapter
+  provider={new WhisperServerProvider({ url: clinicSpeechUrl, token })}  // optional; default = user settings
+  onTranscriptChange={(s) => setDraft(s.text)}
+  onSave={(s) => api.saveDictation(consultationId, s)}
+/>
+// voiceRef.current?.getSnapshot() → { text, recognizedText, hasManualEdits, segments (with timestamps), recordings, language }
+// voiceRef.current?.stopAndSave()   → stop recording, finish transcription, persist (call before navigating away)
+``` Implement `HandwritingRecognitionProvider` to swap engines. The module has no dependency on patients, appointments, doctors, prescriptions or billing.
 
 ### Speed and accuracy notes
 
@@ -184,3 +243,131 @@ Implement `StorageAdapter` (`listDocuments`, `loadDocument`, `saveDocument`, `de
 - **Paragraph detection** is a heuristic: a skipped ruled line, or a large vertical gap, starts a new paragraph.
 - The serverless rate limiter is per instance (best effort). Use Deployment Protection or authentication for real access control.
 - The service worker is active only in production builds (`npm run build && npm run preview`, or Vercel).
+
+---
+
+## 10. Voice to Text
+
+### 10.1 Which recognition engine, and why
+
+**Default: self-hosted Whisper (faster-whisper), with a Hinglish-specialised model.** The engines evaluated are compared in [`docs/SPEECH_ENGINES.md`](docs/SPEECH_ENGINES.md). In short:
+
+- **Hinglish is the hard requirement.** Standard speech models treat Hindi and English as separate languages. Whisper models fine-tuned on code-switched Indian speech write Hinglish the way it is spoken (Roman script). Oriserve publishes one of these, Whisper-Hindi2Hinglish (Apache-2.0), with large error-rate reductions over stock Whisper large-v3 on Hindi/Hinglish test sets.
+- **Privacy.** It runs on hardware you control, so no patient audio goes to a third party. This matches the preference to avoid third-party servers.
+- **One runtime for all three modes.** English and Hindi use stock Whisper (`large-v3-turbo` by default). Hinglish uses the fine-tuned model. Every model can be swapped in `speech-server/.env` without code changes.
+- Hindi-only engines (AI4Bharat IndicConformer, Vosk) don't do Hinglish, and browser speech recognition sends audio to Apple or Google and can't code-switch. Details are in the evaluation document.
+
+> **Important:** this choice is based on published benchmarks and on architecture fit. It has **not yet been validated on your doctors' voices, accents, clinic noise or vocabulary.** Use the accuracy tools (§10.9) on real samples before relying on it, and compare models by changing `MODEL_*` in the server's `.env`.
+
+### 10.2 How English, Hindi and Hinglish are handled
+
+| Language mode | Self-hosted server (default) | Output | Browser engine (opt-in) |
+|---|---|---|---|
+| English (India) | `MODEL_EN` (Whisper large-v3-turbo), English decoding | Latin script | `en-IN` recogniser |
+| Hindi (India) | `MODEL_HI` (Whisper large-v3-turbo), Hindi decoding | Devanagari, "।" sentence ends | `hi-IN` recogniser |
+| Hinglish | `MODEL_HINGLISH` (Whisper-Hindi2Hinglish), English token as its authors document | **Roman Hinglish as spoken**, English words stay English | ⚠️ *approximate*: runs `hi-IN`, cannot code-switch (the app says so) |
+
+- Recognition always uses `task=transcribe`, **never translate**.
+- Post-processing only capitalises and adds a full stop (or "।" after Devanagari). It never transliterates or translates.
+- **Medical vocabulary** (Voice → Settings) is passed to Whisper as a prompt to improve spelling of drug and condition names.
+- Hindi Unicode is preserved in editing, storage, TXT export (UTF-8) and PDF export. The PDF is typeset by the browser, because jsPDF fonts cannot render Devanagari.
+
+### 10.3 Setting up the speech server (Windows)
+
+The server is a separate Python program in `speech-server/` and is not part of the Vite/React app.
+
+```powershell
+cd speech-server
+py -3.12 -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+copy .env.example .env
+# Create a token and paste it into .env as SPEECH_SERVER_TOKEN:
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+python server.py          # or, from the project root: npm run speech:server
+```
+
+- **First start downloads the models** from Hugging Face (several GB). This needs internet once; after that everything runs offline. `GET /v1/health` shows the loading status.
+- **In the app:** open **Voice → Settings**, choose **Self-hosted Whisper server**, and enter the URL (`http://localhost:8765`) and the token. Use **Test connection** to check.
+- **NVIDIA GPU on Windows:** CTranslate2 needs the CUDA 12 cuBLAS and cuDNN 9 libraries. Follow the GPU section of the faster-whisper README. Without them, set `WHISPER_DEVICE=cpu`.
+- **Default Hinglish model:** a community CTranslate2 conversion (`Hub84/faster-whisper-hinglish-prime`) of Oriserve's model. To build it yourself from the original weights, or to try the newer **Apex** version:
+
+  ```powershell
+  pip install ctranslate2 "transformers[torch]"
+  ct2-transformers-converter --model Oriserve/Whisper-Hindi2Hinglish-Apex --output_dir models/hinglish-apex --copy_files tokenizer.json preprocessor_config.json --quantization float16
+  # then in .env:  MODEL_HINGLISH=models/hinglish-apex
+  ```
+
+### 10.4 Using the voice workspace from the iPad
+
+Safari only allows the microphone on **https** pages, and an https page (Vercel) may only call an **https** speech server. Pick one:
+
+| Option | Privacy | Effort |
+|---|---|---|
+| **Local certificate:** create a cert for your PC's LAN IP with `mkcert`, set `SSL_CERTFILE`/`SSL_KEYFILE`, `SPEECH_HOST=0.0.0.0`, and install the mkcert root certificate on the iPad (Settings → General → About → Certificate Trust Settings) | Audio stays on your network | Medium |
+| **Tailscale:** install it on the PC and iPad, then `tailscale serve --https=443 http://localhost:8765` | Encrypted, private network only | Low |
+| **Cloudflare quick tunnel:** `cloudflared tunnel --url http://localhost:8765` | Traffic passes through Cloudflare. **Test audio only, not patient data.** | Lowest |
+
+Then add the iPad-facing origin (for example `https://scribble-project.vercel.app`) to `ALLOWED_ORIGINS` in `speech-server/.env`, and enter the https server URL in Voice → Settings on the iPad.
+
+### 10.5 Where audio goes, internet and cost
+
+| | Self-hosted server | Browser engine |
+|---|---|---|
+| Where audio is processed | Your PC or clinic server | Apple (Safari) or Google (Chrome) |
+| Leaves your infrastructure? | No | **Yes**, so explicit consent is required in Settings |
+| Internet needed? | Only to download models once. Works offline on a local network. | Always |
+| Cost | Free (open-source models). You provide the hardware. | Free to use. No contract or data agreement. |
+| API keys | One token you create yourself | None |
+
+There are no cloud speech API keys in this project. A paid, India-hosted alternative (Sarvam) is described in the evaluation document if self-hosting is impractical. It is not wired in.
+
+### 10.6 Hardware and speed
+
+- **NVIDIA GPU (≥ 6 GB VRAM):** each sentence is final shortly after you pause, and interim text updates about every second. This is the recommended setup for clinic use.
+- **CPU only:** works, but large models take several seconds per sentence and the interim preview lags. For CPU testing, try `MODEL_EN=small`/`MODEL_HI=small` (less accurate). The Hinglish model is large-v3-sized, so it is slow on CPU.
+- **Memory:** two model sizes are loaded by default (turbo for English/Hindi, and the Hinglish model). Set the same model for several modes to save memory.
+
+### 10.7 How live transcription works
+
+- **Capture:** microphone → 16 kHz mono in the browser. A voice-activity detector splits speech into **utterances at natural pauses** (~0.75 s), adapting to steady background noise.
+- **Interim text:** while you speak, a fast pass roughly every second shows **grey provisional text**.
+- **Final text:** when you pause, the whole utterance is transcribed once at full accuracy (beam search, VAD, hallucination filter) and appended as **black, editable text**. This is the final correction step for each sentence.
+- **No duplicates:** utterances never overlap, so finished text is never re-sent or rewritten. For the browser engine, repeated or accumulated results (a known Safari behaviour) are removed.
+- **Sentences and paragraphs:** each utterance becomes a sentence. A longer silence (default 4 s, adjustable) or the ¶ button starts a new paragraph, and ¶ on a line toggles its break.
+- **Status:** four stages are shown separately: *capturing audio → processing audio → recognising text → final transcription available*.
+- **Pause:** stops capturing (the microphone track is disabled) and the timer stops. **Stop** finishes pending sentences and releases the microphone. Switching tabs or sending the app to the background pauses recording. Nothing records in the background.
+- **Failed sentences** (network or server error) are kept as a red "Couldn't transcribe" line with **Retry transcription**. Text is never silently dropped.
+- **Editing:** every line is editable, with undo/redo (toolbar or Ctrl/⌘+Z). Undo only reverts your own actions, never newly recognised speech. Edited lines are marked in amber, and ＋ adds typed text.
+
+### 10.8 Audio retention and privacy
+
+- **Off by default:** audio is discarded after transcription, and only text is saved (IndexedDB, this device).
+- **When enabled** (Settings → *Keep audio recordings*, self-hosted engine): each recording is stored locally as WAV. You can then play a sentence, replay or download the recording, re-transcribe failed parts, or **Delete audio** (the transcript is kept).
+- **Deleting a dictation** deletes its recordings.
+- **The server** processes audio in memory, never writes it to disk, and logs only method/path/status/time. It never logs audio or text. Access needs the token. CORS limits which web origins may call it.
+- The voice feature is for **testing transcription quality**. It makes no diagnoses and generates no prescriptions.
+
+### 10.9 Testing accuracy on real samples
+
+- **In the app:** open **Test accuracy** in the Voice workspace. Dictate, type what was actually said, and see **WER/CER** with a word-by-word diff. Save results with a note (for example "OPD noise, fast speech") and **Export CSV** to compare engines, models and languages.
+- **Batch, on the server machine:** put `001_hinglish.wav` + `001_hinglish.txt` pairs (any audio format) in a folder and run `python evaluate.py samples/ --csv results.csv`. It reports WER/CER and speed per file and per mode.
+- **Suggested protocol:** 20–30 recordings per mode from several doctors, covering:
+  - Indian English accents, native Hindi, and natural Hinglish
+  - drug names, numbers and dosages ("500 mg twice a day after food")
+  - slow and fast speech, recordings over 5 minutes, and real OPD background noise
+
+  Compare `MODEL_*` options on the same set before choosing. The test sentences in the requirements are a smoke test, not proof of accuracy.
+
+### 10.10 Voice limitations (including iPad Safari)
+
+- The self-hosted engine gives **near-live** text (provisional, then final per sentence), not word-by-word streaming. Truly streaming open models for Hinglish are not mature yet.
+- Hinglish spelling is not standardised ("nahi" or "nahin"), so expect WER to overstate real errors. Compare CER too.
+- **iPad Safari:**
+  - microphone and speech need **https** (see §10.4)
+  - recording stops when the iPad locks or Safari goes to the background (the app pauses on this)
+  - Safari's built-in speech recognition may not work in a Home Screen web app, so use Safari itself for the browser engine
+  - the browser engine cannot keep audio or show a level meter
+- Long recordings with audio retention use memory (about 2 MB per minute), and retention is capped at 45 minutes per recording.
+- Number formatting ("two" vs "2", "500 mg") depends on the model. Check dosages in your accuracy tests.
+- **Deploying to Vercel** is unchanged: only the frontend is deployed. The speech server runs on your own machine. Optionally set `VITE_SPEECH_SERVER_URL` in Vercel to pre-fill the server URL.

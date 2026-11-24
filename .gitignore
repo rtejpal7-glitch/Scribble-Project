@@ -6,3 +6,10 @@ dist
 .env.*.local
 *.log
 .DS_Store
+
+# speech server
+speech-server/.env
+speech-server/.venv/
+speech-server/models/
+speech-server/certs/
+__pycache__/

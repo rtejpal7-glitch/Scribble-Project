@@ -2,7 +2,7 @@
   "name": "inkflow-handwriting",
   "private": true,
   "version": "1.0.0",
-  "description": "Handwriting-to-text notebook with a reusable HandwritingEditor module (MyScript digital-ink recognition).",
+  "description": "Voice-to-text (English, Hindi, Hinglish) and handwriting-to-text workspace with reusable modules for ClinicFlow.",
   "type": "module",
   "engines": {
     "node": ">=20.19"
@@ -14,7 +14,9 @@
     "preview": "vite preview",
     "preview:host": "vite preview --host",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "speech:server": "python speech-server/server.py",
+    "speech:test": "python -m unittest discover -s speech-server/tests -t speech-server"
   },
   "dependencies": {
     "jspdf": "^3.0.1",

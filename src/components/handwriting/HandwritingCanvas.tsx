@@ -164,6 +164,18 @@ export function HandwritingCanvas(props: HandwritingCanvasProps) {
   );
   useEffect(() => {
     fitWidth(true);
+    // If the editor starts hidden (another tab is shown), fit once it becomes visible.
+    const root = scrollerRef.current;
+    if (!root || typeof ResizeObserver === 'undefined') return;
+    let fitted = root.clientWidth > 0;
+    const ro = new ResizeObserver(() => {
+      if (!fitted && root.clientWidth > 0) {
+        fitted = true;
+        fitWidth(true);
+      }
+    });
+    ro.observe(root);
+    return () => ro.disconnect();
   }, [fitWidth]);
   const firstFit = useRef(true);
   useEffect(() => {

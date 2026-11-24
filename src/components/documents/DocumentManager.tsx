@@ -1,13 +1,22 @@
 import { useEffect, useState } from 'react';
 import type { DocumentSummary } from '../../types/document';
-import type { StorageAdapter } from '../../storage/StorageAdapter';
 import { useConfirm } from '../common/ConfirmDialog';
 import { PencilLineIcon, PlusIcon, TrashIcon, XIcon } from '../common/icons';
 import { Spinner } from '../editor/RecognitionStatus';
 
+/** Anything that can list and delete documents (handwriting or voice storage). */
+export interface DocumentListSource {
+  listDocuments(): Promise<DocumentSummary[]>;
+  deleteDocument(id: string): Promise<void>;
+}
+
 interface Props {
   open: boolean;
-  storage: StorageAdapter;
+  storage: DocumentListSource;
+  heading?: string;
+  /** Describes the count shown per document (pages / recordings). */
+  countLabel?: (n: number) => string;
+  footer?: string;
   currentId: string;
   refreshKey: number;
   onClose(): void;
@@ -25,8 +34,11 @@ function formatDate(ts: number) {
     : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-/** Document list drawer: create, open, rename, delete (with confirmation). */
+const pagesLabel = (n: number) => `${n} page${n === 1 ? '' : 's'}`;
+
+/** Document list drawer: create, open, rename, delete (with confirmation). Shared by both workspaces. */
 export function DocumentManager(p: Props) {
+  const countLabel = p.countLabel ?? pagesLabel;
   const [docs, setDocs] = useState<DocumentSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -58,7 +70,7 @@ export function DocumentManager(p: Props) {
   const remove = async (d: DocumentSummary) => {
     const ok = await confirm({
       title: `Delete “${d.title}”?`,
-      message: `All ${d.pageCount} page${d.pageCount === 1 ? '' : 's'} of handwriting and text will be permanently deleted from this device.`,
+      message: `“${d.title}” (${countLabel(d.pageCount)}) and all its content will be permanently deleted from this device.`,
       confirmLabel: 'Delete document',
       destructive: true,
     });
@@ -80,11 +92,11 @@ export function DocumentManager(p: Props) {
         className={`fixed inset-y-0 left-0 z-50 flex w-[340px] max-w-[88vw] flex-col border-r border-slate-200 bg-white shadow-xl transition-transform duration-200 ${
           p.open ? 'translate-x-0' : '-translate-x-full'
         }`}
-        aria-label="Documents"
+        aria-label={p.heading ?? "Documents"}
         aria-hidden={!p.open}
       >
         <div className="flex h-14 items-center gap-2 border-b border-slate-200 px-4">
-          <h2 className="flex-1 text-[15px] font-semibold text-slate-900">Notebooks</h2>
+          <h2 className="flex-1 text-[15px] font-semibold text-slate-900">{p.heading ?? 'Notebooks'}</h2>
           <button className="btn-primary h-8 px-3 text-[13px]" onClick={p.onCreateDocument}>
             <PlusIcon size={15} /> New
           </button>
@@ -125,7 +137,7 @@ export function DocumentManager(p: Props) {
                       <button className="min-w-0 flex-1 text-left" onClick={() => p.onOpenDocument(d.id)}>
                         <div className="truncate text-[14px] font-medium text-slate-900">{d.title}</div>
                         <div className="mt-0.5 text-[12px] text-slate-500">
-                          {formatDate(d.updatedAt)} · {d.pageCount} page{d.pageCount === 1 ? '' : 's'}
+                          {formatDate(d.updatedAt)} · {countLabel(d.pageCount)}
                         </div>
                         {d.preview && <div className="mt-1 line-clamp-2 text-[12px] leading-snug text-slate-400">{d.preview}</div>}
                       </button>
@@ -158,7 +170,7 @@ export function DocumentManager(p: Props) {
           </ul>
         </div>
         <p className="border-t border-slate-200 px-4 py-3 text-[11.5px] leading-relaxed text-slate-400">
-          Documents are stored on this device (IndexedDB). Add the app to your Home Screen to keep Safari from clearing them.
+          {p.footer ?? 'Documents are stored on this device (IndexedDB). Add the app to your Home Screen to keep Safari from clearing them.'}
         </p>
       </aside>
     </>

@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { HandwritingDocument } from '../types/document';
-import type { StorageAdapter } from '../storage/StorageAdapter';
 
 export type SaveStatus = 'idle' | 'pending' | 'saving' | 'saved' | 'error';
 
@@ -8,17 +6,18 @@ export type SaveStatus = 'idle' | 'pending' | 'saving' | 'saved' | 'error';
  * Debounced autosave. Also flushes when the page is hidden (iPad app switch,
  * tab close) so ink is not lost.
  */
-export function useAutosave(
-  doc: HandwritingDocument | null,
+/** Works for any document type with an `id` (handwriting notebooks, voice transcripts). */
+export function useAutosave<T extends { id: string }>(
+  doc: T | null,
   dirtyVersion: number,
-  storage: StorageAdapter,
-  onSaved?: (doc: HandwritingDocument) => void,
+  storage: { saveDocument(doc: T): Promise<void> },
+  onSaved?: (doc: T) => void,
   delayMs = 700,
 ) {
   const [status, setStatus] = useState<SaveStatus>('idle');
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const latest = useRef<{ doc: HandwritingDocument | null; version: number }>({ doc, version: dirtyVersion });
+  const latest = useRef<{ doc: T | null; version: number }>({ doc, version: dirtyVersion });
   const savedVersion = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saving = useRef<Promise<void> | null>(null);
