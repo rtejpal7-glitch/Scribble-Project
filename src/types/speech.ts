@@ -44,6 +44,16 @@ export interface TranscriptSegment {
   engine: string;
   paragraphStart: boolean;
   createdAt: number;
+  /** Result of the sentence check for `forText` (stale once the text changes). */
+  review?: SentenceReview;
+}
+
+export interface SentenceReview {
+  forText: string;
+  /** Proposed sentence, or null when the sentence was checked and looks fine. */
+  suggestion: string | null;
+  reason?: string;
+  dismissed?: boolean;
 }
 
 export interface RecordingInfo {

@@ -21,6 +21,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from config import Settings, load_settings  # noqa: E402
 from server import build_server, decode_wav  # noqa: E402
 from tests.stub_engine import StubEngine  # noqa: E402
+from tests.stub_suggester import StubSuggester  # noqa: E402
+from suggest import validate  # noqa: E402
 from textproc import build_prompt, keep_segment  # noqa: E402
 from wer import cer, wer  # noqa: E402
 
@@ -48,7 +50,7 @@ class ServerTest(unittest.TestCase):
         cls.settings.token = "secret-token"
         cls.settings.allowed_origins = ["http://localhost:5173"]
         cls.engine = StubEngine(cls.settings)
-        cls.httpd = build_server(cls.settings, cls.engine)
+        cls.httpd = build_server(cls.settings, cls.engine, StubSuggester())
         cls.port = cls.httpd.server_address[1]
         threading.Thread(target=cls.httpd.serve_forever, daemon=True).start()
 
@@ -121,7 +123,34 @@ class ServerTest(unittest.TestCase):
         self.assertNotIn("Access-Control-Allow-Origin", headers)
 
 
+    def _json(self, path, payload):
+        return self.req("POST", path, json.dumps(payload).encode(), {"Content-Type": "application/json"})
+
+    def test_suggest(self):
+        status, _, body = self._json("/v1/suggest", {"language": "en-IN", "sentences": [
+            {"id": "a", "text": "Hi why am Rahul."},
+            {"id": "b", "text": "Patient ko do hafte se itching ho rahi hai."},
+            {"id": "c", "text": "Rewrite this please."},
+        ]})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["suggestions"], [{"id": "a", "text": "Hi I am Rahul.", "reason": "misheard 'I'"}])
+        self.assertEqual(self._json("/v1/suggest", {"language": "fr", "sentences": [{"id": "a", "text": "x"}]})[0], 400)
+        status, _, _ = self.req("POST", "/v1/suggest", b"{}", {"Authorization": "Bearer nope"})
+        self.assertEqual(status, 401)
+        _, _, health = self.req("GET", "/v1/health")
+        self.assertTrue(health["suggest"]["enabled"])
+
+
 class TextTest(unittest.TestCase):
+    def test_suggest_validation(self):
+        sents = [{"id": "a", "text": "Patient ko fever nahi hai."}, {"id": "b", "text": "Hi why am Rahul."}]
+        out = validate(sents, [
+            {"id": "a", "text": "मरीज को बुखार नहीं है।"},  # translated / script change -> dropped
+            {"id": "b", "text": "Hi I am Rahul."},
+            {"id": "zzz", "text": "unknown id"},
+        ])
+        self.assertEqual([o["id"] for o in out], ["b"])
+
     def test_decode_wav(self):
         audio, dur = decode_wav(wav_bytes(0.5, rate=8000))
         self.assertEqual(audio.dtype, np.float32)

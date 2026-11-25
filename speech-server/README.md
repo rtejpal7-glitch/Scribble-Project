@@ -14,6 +14,7 @@ python server.py
 | Endpoint | |
 |---|---|
 | `GET /v1/health` | Engine, device, and model per mode (loaded / loading / error). Requires the token. |
+| `POST /v1/suggest` | JSON `{language, sentences:[{id,text}], context?, medicines?}` → `{suggestions:[{id,text,reason}]}` from the local language model (`SUGGEST_BACKEND`). |
 | `POST /v1/transcribe?mode=en\|hi\|hinglish[&interim=1]` | Body: WAV (16 kHz mono preferred). Header `Authorization: Bearer <token>`, optional `X-Vocabulary: base64(utf-8 terms)`. Returns `{text, segments, model, processing_ms, …}` |
 
 - **Privacy:** audio is decoded in memory and never written to disk. Request bodies and transcripts are never logged.

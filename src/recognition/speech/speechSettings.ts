@@ -20,6 +20,8 @@ export interface SpeechSettings {
   paragraphPauseSec: number;
   /** Terms (drug names, conditions) used to bias recognition. */
   vocabulary: string;
+  /** Suggest corrections for sentences that don't make sense (local AI model on the speech server). */
+  sentenceCheck: boolean;
 }
 
 const KEY = 'inkflow:speech-settings';
@@ -34,6 +36,7 @@ export function defaultSpeechSettings(): SpeechSettings {
     autoPunctuation: true,
     paragraphPauseSec: 4,
     vocabulary: '',
+    sentenceCheck: true,
   };
 }
 

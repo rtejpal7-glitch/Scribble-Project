@@ -268,7 +268,7 @@ export function HandwritingCanvas(props: HandwritingCanvasProps) {
   return (
     <div
       ref={scrollerRef}
-      className="ink-scroller relative h-full w-full overflow-auto overscroll-contain bg-[#eceef1]"
+      className="ink-scroller relative h-full w-full overflow-auto overscroll-contain bg-canvas"
       data-testid="ink-scroller"
     >
       <div

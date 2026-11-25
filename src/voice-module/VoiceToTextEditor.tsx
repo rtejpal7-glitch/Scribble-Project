@@ -11,6 +11,7 @@ import {
 } from '../recognition/speech/speechSettings';
 import { useVoiceDocument } from '../hooks/useVoiceDocument';
 import { useSpeechRecognition, type RecorderPhase } from '../hooks/useSpeechRecognition';
+import { useSentenceCheck } from '../hooks/useSentenceCheck';
 import { useAutosave, type SaveStatus } from '../hooks/useAutosave';
 import { useMediaQuery, useOnlineStatus } from '../hooks/useOnlineStatus';
 import { buildVoiceSnapshot, transcriptText } from '../state/voiceText';
@@ -108,6 +109,7 @@ function VoiceInner(props: VoiceToTextEditorProps) {
 
   const speech = useSpeechRecognition({ provider, providerReason: reason, settings, storage, stateRef, dispatch });
   const live = speech.phase !== 'idle';
+  const sentenceCheck = useSentenceCheck(doc, dispatch, settings, speech.pending > 0);
 
   const cbs = useRef(props);
   cbs.current = props;
@@ -429,6 +431,13 @@ function VoiceInner(props: VoiceToTextEditorProps) {
         const wav = await storage.loadAudio(r.id);
         if (wav) downloadBlob(wav, `${safeFileName(doc.title)} - ${new Date(r.startedAt).toISOString().slice(0, 16).replace(':', '-')}.wav`);
       }}
+      sentenceCheck={sentenceCheck}
+      onCheckSentences={sentenceCheck.checkNow}
+      onApplySuggestion={(segmentId, text) => {
+        dispatch({ type: 'editSegment', segmentId, text });
+        dispatch({ type: 'setReviews', reviews: [{ segmentId, forText: text, suggestion: null }] });
+      }}
+      onDismissSuggestion={(segmentId) => dispatch({ type: 'dismissReview', segmentId })}
       onDeleteAudio={async (r) => {
         const ok = await confirm({
           title: 'Delete this recording?',
@@ -445,7 +454,7 @@ function VoiceInner(props: VoiceToTextEditorProps) {
   );
 
   return (
-    <div className={`voice-editor flex h-full min-h-0 w-full bg-[#f7f8fa] ${wide ? 'flex-row' : 'flex-col'} ${props.className ?? ''}`}>
+    <div className={`voice-editor flex h-full min-h-0 w-full bg-panel ${wide ? 'flex-row' : 'flex-col'} ${props.className ?? ''}`}>
       <aside
         className={`shrink-0 overflow-y-auto overscroll-contain ${wide ? 'w-[340px] border-r border-slate-200' : 'max-h-[48%] border-b border-slate-200'}`}
         aria-label="Recording controls"

@@ -136,6 +136,7 @@ speech-server/                   Self-hosted speech recognition (Python, separat
   server.py                      HTTP API: /v1/health, /v1/transcribe (token auth, CORS, no content logging)
   engines.py, config.py          faster-whisper engine, one model per language mode
   evaluate.py, wer.py            batch accuracy test on your own recordings
+  suggest.py                     sentence check via a local language model (Ollama / OpenAI-compatible)
   tests/                         server tests (stub engine, no models needed)
 docs/SPEECH_ENGINES.md           engine evaluation (why this engine, alternatives)
 src/
@@ -153,8 +154,11 @@ src/
   storage/                       db (shared IndexedDB v2), IndexedDBStorage (ink), VoiceStorage (voice + audio)
   hooks/                         useHandwriting, useRecognition, useSpeechRecognition, useVoiceDocument,
                                  useAutosave (shared), useOnlineStatus
+  clinical/                      medicines (built-in list), medicineMatcher, medicineStore, suggestionSafety
+  theme/theme.ts                 system / light / dark theme
   components/
-    navigation/WorkspaceTabs.tsx
+    navigation/                  WorkspaceTabs, ThemeToggle
+    clinical/                    MedicineSuggestions, MedicineDictionaryDialog
     voice/                       VoiceWorkspace, MicrophoneControls, LanguageSelector, TranscriptionPanel,
                                  RecordingStatus, VoiceSettingsDialog, EvaluationPanel
     handwriting/                 HandwritingWorkspace, HandwritingCanvas, InkPage, HandwritingToolbar, …
@@ -371,3 +375,42 @@ There are no cloud speech API keys in this project. A paid, India-hosted alterna
 - Long recordings with audio retention use memory (about 2 MB per minute), and retention is capped at 45 minutes per recording.
 - Number formatting ("two" vs "2", "500 mg") depends on the model. Check dosages in your accuracy tests.
 - **Deploying to Vercel** is unchanged: only the frontend is deployed. The speech server runs on your own machine. Optionally set `VITE_SPEECH_SERVER_URL` in Vercel to pre-fill the server URL.
+
+### 10.11 Sentence check ("Hi why am Rahul" → "Hi I am Rahul")
+
+After sentences are recognised, the app sends the newest unedited sentences, plus a little preceding context, to the speech server's **local language model**. Sentences that probably contain a misheard word get a blue **"Possibly misheard — did you mean …"** card with the changed words highlighted. Nothing changes until you tap **Use suggestion**, and undo works. Use **Check sentences** in the transcript toolbar to run it manually.
+
+- **Private:** the model runs on your machine. The transcript text never goes to a cloud AI service.
+- **Safety:**
+  - The server drops "suggestions" that rewrite the whole sentence or switch script or language (no translation).
+  - The app shows **⚠ changes a number or dose / changes a medicine name** whenever a suggestion touches those, so check carefully.
+  - Only recognised, unedited sentences are checked. Your own writing is left alone.
+
+Setup on the speech server machine (Windows):
+
+1. Install **Ollama** from https://ollama.com and run `ollama pull qwen2.5:7b-instruct` (≈5 GB; a GPU is recommended).
+2. In `speech-server/.env`, set `SUGGEST_BACKEND=ollama` (the default). `SUGGEST_MODEL` can point at another model. On a CPU, a smaller one like `qwen2.5:3b-instruct` is faster but weaker.
+3. Restart `python server.py`. **Voice → Settings → Test connection** shows "sentence check: ollama (…)".
+4. Alternatives: `SUGGEST_BACKEND=openai-compatible` with `SUGGEST_URL` for llama.cpp server, LM Studio or vLLM. `SUGGEST_BACKEND=off` disables it.
+
+It needs the speech server (URL + token in Voice settings) even when recognition uses the browser engine.
+
+**Limitation:** the suggestion quality depends on the local model and **has not been evaluated** on Hindi or Hinglish clinical dictation. Treat it as a helper and judge it with your own samples. Running the model and Whisper on the same GPU slows both, so the app waits until pending transcription is done before checking.
+
+## 11. Medicine dictionary (voice and handwriting)
+
+The **Medicines** button in the top bar opens a shared dictionary.
+
+- **Built-in list:** ~370 generic names commonly prescribed in India. It is not a drug database and holds no doses.
+- **Your own names:** add brands and your formulary by typing, pasting, or importing a `.txt`/`.csv` file.
+
+After any recognition (voice, either engine, or handwriting), words that look like a misspelled medicine get a green **"Medicine name? 'clobetasole' → clobetasol"** row. A fuzzy, sound-alike match catches misreadings like cetrizine → cetirizine and benzoil peroxide → benzoyl peroxide.
+
+- **One tap applies a suggestion; nothing is changed automatically**, because many drug names sound alike (hydroxyzine / hydralazine).
+- **Not a medicine** stops a word from being flagged again.
+- ClinicFlow can supply its formulary in code: `setCustomMedicines([...])` from `src/clinical/medicineStore`.
+- This complements **Voice settings → Medical vocabulary**. The vocabulary (about 50 names) helps Whisper *hear* names correctly; the dictionary catches what still comes out wrong, with no size limit.
+
+## 12. Light / dark theme
+
+The app follows the device's light or dark setting automatically. The toggle at the top right cycles **automatic → light → dark** and remembers the choice. In dark mode the handwriting **paper stays white**, so black ink remains readable, and exports are unchanged.

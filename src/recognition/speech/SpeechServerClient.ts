@@ -5,6 +5,13 @@ export interface ServerHealth {
   engine: string;
   device: string;
   modes: Record<string, { model: string; language: string; loaded: boolean; loading: boolean; error: string | null }>;
+  suggest?: { enabled: boolean; backend: string; model?: string };
+}
+
+export interface SentenceSuggestion {
+  id: string;
+  text: string;
+  reason: string;
 }
 
 export interface ServerTranscription {
@@ -73,6 +80,33 @@ export class SpeechServerClient {
     const res = await this.request('/v1/health', { method: 'GET' });
     if (!res.ok) await this.fail(res);
     return (await res.json()) as ServerHealth;
+  }
+
+  /** Sentence check on the server's local language model. */
+  async suggest(
+    language: SpeechLanguage,
+    sentences: Array<{ id: string; text: string }>,
+    options: { context?: string[]; medicines?: string[]; signal?: AbortSignal } = {},
+  ): Promise<SentenceSuggestion[]> {
+    const res = await this.request(
+      '/v1/suggest',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ language, sentences, context: options.context ?? [], medicines: options.medicines ?? [] }),
+      },
+      options.signal,
+    );
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null;
+      if (res.status === 401) throw new SpeechError('auth', 'The speech server rejected the access token.');
+      const code = body?.error?.code;
+      throw new SpeechError(
+        code === 'suggest_disabled' || code === 'suggest_unavailable' ? 'not-configured' : 'server',
+        body?.error?.message ?? `Sentence check failed (HTTP ${res.status}).`,
+      );
+    }
+    return ((await res.json()) as { suggestions: SentenceSuggestion[] }).suggestions;
   }
 
   async transcribe(

@@ -185,7 +185,7 @@ export function TextOutputPanel(props: Props) {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[#f7f8fa]">
+    <div className="flex h-full min-h-0 flex-col bg-panel">
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-3">
         <h2 className="text-[13.5px] font-semibold text-slate-800">Converted text</h2>
         <RecognitionStatus status={status} availability={props.availability} online={props.online} />

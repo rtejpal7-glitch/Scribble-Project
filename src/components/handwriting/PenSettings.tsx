@@ -26,7 +26,7 @@ export function PenSettings({ tool, onChange }: Props) {
               className="block h-[18px] w-[18px] rounded-full transition-shadow"
               style={{
                 backgroundColor: PEN_COLORS[c],
-                boxShadow: selected ? `0 0 0 2px #fff, 0 0 0 3.5px ${PEN_COLORS[c]}` : 'inset 0 0 0 1px rgba(0,0,0,.08)',
+                boxShadow: selected ? `0 0 0 2px var(--color-white), 0 0 0 3.5px ${PEN_COLORS[c]}` : 'inset 0 0 0 1px rgba(0,0,0,.08)',
               }}
             />
           </button>

@@ -51,7 +51,9 @@ class StubEngine:
             if interim:
                 words = text.split()
                 text = " ".join(words[: max(1, len(words) // 2)])
-            if vocabulary:
+            if "demo-rahul" in vocabulary:
+                text = "Hi why am Rahul"  # e2e: a sentence the sentence check should fix
+            elif vocabulary:
                 text = f"{text} ({vocabulary.split(',')[0].strip()})"
             return {"text": text, "segments": [{"start": 0.0, "end": round(seconds, 2), "text": text}], "model": "stub", "language": mode}
         finally:

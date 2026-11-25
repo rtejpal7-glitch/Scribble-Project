@@ -2,6 +2,7 @@ import { memo, useLayoutEffect, useRef, useState } from 'react';
 import type { TextBlock } from '../../types/document';
 import { SparklesIcon, UndoIcon } from '../common/icons';
 import { replaceWord } from '../../sync/textSync';
+import { MedicineSuggestions } from '../clinical/MedicineSuggestions';
 
 interface Props {
   block: TextBlock;
@@ -140,6 +141,7 @@ function TextBlockEditorImpl({ block, onChange, onRevert, onResolveConflict }: P
           </button>
         )}
       </div>
+      <MedicineSuggestions text={value} onReplace={(t) => onChange(block.id, t)} className="mt-1 mb-1 ml-2.5" />
       {hasAlternatives && showAlternatives && (
         <Alternatives
           block={block}

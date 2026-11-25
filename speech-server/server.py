@@ -3,6 +3,7 @@
 
     GET  /v1/health                       -> engine + model status (auth required)
     POST /v1/transcribe?mode=hinglish     -> {text, segments, ...}
+    POST /v1/suggest                      -> sentence-check suggestions (local LLM)
          body: audio/wav (16 kHz mono PCM16 preferred; other rates are resampled)
          headers: Authorization: Bearer <SPEECH_SERVER_TOKEN>
                   X-Vocabulary: base64(UTF-8 comma-separated terms)   (optional)
@@ -36,6 +37,7 @@ import numpy as np
 
 from config import MODES, Settings, load_settings
 from engines import Engine, EngineBusy, EngineError, load_engine
+from suggest import SuggestError, Suggester, load_suggester, run_suggest
 
 log = logging.getLogger("inkflow.speech")
 TARGET_RATE = 16000
@@ -69,7 +71,7 @@ def decode_wav(data: bytes) -> tuple[np.ndarray, float]:
     return audio, audio.size / TARGET_RATE
 
 
-def make_handler(settings: Settings, engine: Engine):
+def make_handler(settings: Settings, engine: Engine, suggester: Suggester | None = None):
     max_body = settings.max_audio_seconds * TARGET_RATE * 2 * 2 + 4096  # generous (allows 32-bit / stereo)
 
     class Handler(BaseHTTPRequestHandler):
@@ -142,11 +144,39 @@ def make_handler(settings: Settings, engine: Engine):
                 return self._error(404, "not_found", "Unknown endpoint.", started)
             if not self._authorized():
                 return self._error(401, "unauthorized", "Missing or wrong access token.", started)
-            return self._send_json(200, {"ok": True, **engine.describe()}, started)
+            suggest = suggester.describe() if suggester else {"enabled": False, "backend": "off"}
+            return self._send_json(200, {"ok": True, **engine.describe(), "suggest": suggest}, started)
+
+        def _suggest(self, started: float) -> None:
+            length = int(self.headers.get("Content-Length") or 0)
+            if length <= 0 or length > 65536:
+                self.close_connection = True
+                return self._error(413 if length else 400, "bad_body", "Send a JSON body up to 64 KB.", started)
+            try:
+                body = json.loads(self.rfile.read(length).decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                return self._error(400, "bad_json", "Body must be JSON.", started)
+            if suggester is None:
+                return self._error(503, "suggest_disabled", "Sentence check is turned off on the server (SUGGEST_BACKEND=off).", started)
+            try:
+                result = run_suggest(suggester, body if isinstance(body, dict) else {})
+            except ValueError as e:
+                return self._error(400, "bad_request", str(e), started)
+            except SuggestError as e:
+                return self._error(503, "suggest_unavailable", str(e), started)
+            except Exception as e:  # noqa: BLE001
+                log.exception("suggest failed (%s)", type(e).__name__)
+                return self._error(500, "suggest_error", f"Sentence check failed: {type(e).__name__}", started)
+            return self._send_json(200, result, started)
 
         def do_POST(self) -> None:  # noqa: N802
             started = time.perf_counter()
             url = urlparse(self.path)
+            if url.path == "/v1/suggest":
+                if not self._authorized():
+                    self._drain()
+                    return self._error(401, "unauthorized", "Missing or wrong access token.", started)
+                return self._suggest(started)
             if url.path != "/v1/transcribe":
                 self._drain()
                 return self._error(404, "not_found", "Unknown endpoint.", started)
@@ -201,8 +231,8 @@ def make_handler(settings: Settings, engine: Engine):
     return Handler
 
 
-def build_server(settings: Settings, engine: Engine) -> ThreadingHTTPServer:
-    httpd = ThreadingHTTPServer((settings.host, settings.port), make_handler(settings, engine))
+def build_server(settings: Settings, engine: Engine, suggester: Suggester | None = None) -> ThreadingHTTPServer:
+    httpd = ThreadingHTTPServer((settings.host, settings.port), make_handler(settings, engine, suggester))
     httpd.daemon_threads = True
     if settings.ssl_certfile and settings.ssl_keyfile:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -232,12 +262,14 @@ def main(argv: list[str] | None = None) -> int:
     if settings.preload:
         threading.Thread(target=engine.preload, name="preload", daemon=True).start()
 
-    httpd = build_server(settings, engine)
+    suggester = load_suggester(settings.suggest_backend, settings.suggest_url, settings.suggest_model, settings.suggest_api_key)
+    httpd = build_server(settings, engine, suggester)
     scheme = "https" if settings.ssl_certfile else "http"
     log.info("InkFlow speech server on %s://%s:%d (engine: %s)", scheme, settings.host, settings.port, engine.name)
     for mode, cfg in settings.modes.items():
         log.info("  mode %-8s model=%s language=%s", mode, cfg.model, cfg.language)
     log.info("Allowed origins: %s", ", ".join(settings.allowed_origins) or "(none)")
+    log.info("Sentence check: %s", f"{suggester.name} ({suggester.describe().get('model')})" if suggester else "off")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

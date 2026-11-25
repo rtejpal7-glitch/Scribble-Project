@@ -102,6 +102,8 @@ export type VoiceAction =
   | { type: 'undo' }
   | { type: 'redo' }
   | { type: 'audioDeleted'; recordingId: string }
+  | { type: 'setReviews'; reviews: Array<{ segmentId: string; forText: string; suggestion: string | null; reason?: string }> }
+  | { type: 'dismissReview'; segmentId: string }
   | { type: 'addEvaluation'; result: EvaluationResult }
   | { type: 'deleteEvaluation'; id: string };
 
@@ -243,6 +245,24 @@ export function voiceReducer(state: VoiceState, action: VoiceAction): VoiceState
       return changed(
         state,
         touch(doc, { recordings: doc.recordings.map((r) => (r.id === action.recordingId ? { ...r, audioStored: false } : r)) }),
+      );
+    case 'setReviews': {
+      const map = new Map(action.reviews.map((r) => [r.segmentId, r]));
+      let any = false;
+      const segments = doc.segments.map((s) => {
+        const r = map.get(s.id);
+        if (!r || s.text !== r.forText) return s; // text changed meanwhile: result is stale
+        any = true;
+        return { ...s, review: { forText: r.forText, suggestion: r.suggestion, reason: r.reason } };
+      });
+      return any ? changed(state, touch(doc, { segments })) : state;
+    }
+    case 'dismissReview':
+      return changed(
+        state,
+        touch(doc, {
+          segments: doc.segments.map((s) => (s.id === action.segmentId && s.review ? { ...s, review: { ...s.review, dismissed: true } } : s)),
+        }),
       );
     case 'addEvaluation':
       return changed(state, touch(doc, { evaluations: [action.result, ...doc.evaluations] }));

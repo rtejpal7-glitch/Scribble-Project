@@ -4,6 +4,9 @@ import { WorkspaceTabs, type WorkspaceId } from './components/navigation/Workspa
 import { HandwritingWorkspace } from './components/handwriting/HandwritingWorkspace';
 import { VoiceWorkspace } from './components/voice/VoiceWorkspace';
 import { requestPersistentStorage } from './storage/IndexedDBStorage';
+import { ThemeToggle } from './components/navigation/ThemeToggle';
+import { MedicineDictionaryDialog } from './components/clinical/MedicineDictionaryDialog';
+import { PillIcon } from './components/clinical/MedicineSuggestions';
 
 const TAB_KEY = 'inkflow:workspace';
 
@@ -26,6 +29,7 @@ export default function App() {
   const [tab, setTab] = useState<WorkspaceId>(initialTab);
   const [focus, setFocus] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [medicinesOpen, setMedicinesOpen] = useState(false);
 
   useEffect(() => {
     void requestPersistentStorage();
@@ -44,8 +48,8 @@ export default function App() {
     <ConfirmProvider>
       <div className="app-shell flex h-full flex-col bg-white">
         {!focus && (
-          <header className="flex shrink-0 items-center gap-3 border-b border-slate-200 bg-[#fbfbfc] px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2">
-            <span className="hidden text-[13px] font-semibold tracking-tight text-slate-400 md:inline">InkFlow</span>
+          <header className="flex shrink-0 items-center gap-3 border-b border-slate-200 bg-chrome px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2">
+            <span className="hidden w-[88px] text-[13px] font-semibold tracking-tight text-slate-400 md:inline lg:w-[130px]">InkFlow</span>
             <div className="flex flex-1 justify-center">
               <WorkspaceTabs
                 active={tab}
@@ -55,7 +59,19 @@ export default function App() {
                 }}
               />
             </div>
-            <span className="hidden w-[52px] md:inline" aria-hidden="true" />
+            <div className="flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => setMedicinesOpen(true)}
+                title="Medicine dictionary"
+                aria-label="Medicine dictionary"
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2 text-[13px] font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+              >
+                <PillIcon size={17} />
+                <span className="hidden lg:inline">Medicines</span>
+              </button>
+              <ThemeToggle />
+            </div>
           </header>
         )}
         <main className="relative min-h-0 flex-1">
@@ -67,6 +83,7 @@ export default function App() {
           </section>
         </main>
       </div>
+      <MedicineDictionaryDialog open={medicinesOpen} onClose={() => setMedicinesOpen(false)} />
     </ConfirmProvider>
   );
 }

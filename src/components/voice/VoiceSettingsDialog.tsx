@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { SpeechSettings } from '../../recognition/speech/speechSettings';
 import { createSpeechProvider } from '../../recognition/speech/speechSettings';
+import { SpeechServerClient } from '../../recognition/speech/SpeechServerClient';
 import { XIcon } from '../common/icons';
 import { Spinner } from '../editor/RecognitionStatus';
 
@@ -46,10 +47,18 @@ export function VoiceSettingsDialog({ open, settings, recording, onClose, onSave
   const patch = (p: Partial<SpeechSettings>) => setS((x) => ({ ...x, ...p }));
   const runTest = async () => {
     setTest({ state: 'testing' });
-    const { provider, reason } = createSpeechProvider(s);
-    if (!provider) return setTest({ state: 'fail', message: reason });
-    const a = await provider.checkAvailability();
-    setTest({ state: a.available ? 'ok' : 'fail', message: [a.reason, a.detail].filter(Boolean).join(' — ') || 'Connected.' });
+    const { provider } = createSpeechProvider({ ...s, engine: 'server' });
+    const a = await provider!.checkAvailability();
+    let check = '';
+    if (a.available) {
+      try {
+        const h = await new SpeechServerClient(s.serverUrl, s.serverToken).health();
+        check = h.suggest?.enabled ? ` · sentence check: ${h.suggest.backend} (${h.suggest.model})` : ' · sentence check: off on server';
+      } catch {
+        /* ignore */
+      }
+    }
+    setTest({ state: a.available ? 'ok' : 'fail', message: ([a.reason, a.detail].filter(Boolean).join(' — ') || 'Connected.') + check });
   };
 
   return (
@@ -106,8 +115,21 @@ export function VoiceSettingsDialog({ open, settings, recording, onClose, onSave
             </div>
           </fieldset>
 
-          {s.engine === 'server' ? (
-            <div className="space-y-3">
+          {s.engine === 'browser' && (
+            <label className="flex gap-3 rounded-xl bg-amber-50 p-3 ring-1 ring-amber-200 ring-inset">
+              <input type="checkbox" className="mt-1" checked={s.browserConsent} onChange={(e) => patch({ browserConsent: e.target.checked })} />
+              <span className="text-[12.5px] leading-snug text-amber-950">
+                I understand that with this engine the browser sends my audio to Apple or Google for recognition, and I will not use it
+                for real patient information.
+              </span>
+            </label>
+          )}
+          <div className="space-y-3">
+              {s.engine === 'browser' && (
+                <p className="text-[12.5px] leading-snug text-slate-500">
+                  Optional with the browser engine: your speech server is still used for the sentence check.
+                </p>
+              )}
               <Field label="Speech server URL" hint="Use https:// when this app is opened over https (e.g. from Vercel on an iPad).">
                 <input className={input} value={s.serverUrl} onChange={(e) => patch({ serverUrl: e.target.value.trim() })} placeholder="http://localhost:8765" inputMode="url" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
               </Field>
@@ -121,16 +143,7 @@ export function VoiceSettingsDialog({ open, settings, recording, onClose, onSave
                 {test.state === 'ok' && <span className="text-[12.5px] text-emerald-700">✓ {test.message}</span>}
                 {test.state === 'fail' && <span className="text-[12.5px] text-red-700">{test.message}</span>}
               </div>
-            </div>
-          ) : (
-            <label className="flex gap-3 rounded-xl bg-amber-50 p-3 ring-1 ring-amber-200 ring-inset">
-              <input type="checkbox" className="mt-1" checked={s.browserConsent} onChange={(e) => patch({ browserConsent: e.target.checked })} />
-              <span className="text-[12.5px] leading-snug text-amber-950">
-                I understand that with this engine the browser sends my audio to Apple or Google for recognition, and I will not use it
-                for real patient information.
-              </span>
-            </label>
-          )}
+          </div>
 
           <div className="space-y-3 border-t border-slate-200 pt-4">
             <label className="flex items-start gap-3">
@@ -148,6 +161,17 @@ export function VoiceSettingsDialog({ open, settings, recording, onClose, onSave
               <span>
                 <span className="block text-[13.5px] font-medium text-slate-900">Tidy sentences</span>
                 <span className="block text-[12.5px] leading-snug text-slate-500">Capitalise and end each sentence with “.” (or “।” after Hindi).</span>
+              </span>
+            </label>
+            <label className="flex items-start gap-3">
+              <input type="checkbox" className="mt-1" checked={s.sentenceCheck} onChange={(e) => patch({ sentenceCheck: e.target.checked })} />
+              <span>
+                <span className="block text-[13.5px] font-medium text-slate-900">Suggest fixes for sentences that don't make sense</span>
+                <span className="block text-[12.5px] leading-snug text-slate-500">
+                  e.g. “Hi why am Rahul” → “Hi I am Rahul”. Uses a local AI model on your speech server (Ollama, see README), so
+                  the text stays on your machine. Needs the server URL and token above, even when you use the browser engine.
+                  Suggestions are never applied without your tap.
+                </span>
               </span>
             </label>
             <Field label={`New paragraph after a pause of ${s.paragraphPauseSec} s`}>

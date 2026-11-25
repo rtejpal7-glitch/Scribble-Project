@@ -18,6 +18,9 @@ import {
 } from '../common/icons';
 import { formatDuration } from './MicrophoneControls';
 import { Spinner } from '../editor/RecognitionStatus';
+import { MedicineSuggestions } from '../clinical/MedicineSuggestions';
+import { SentenceSuggestion } from './SentenceSuggestion';
+import type { SentenceCheckStatus } from '../../hooks/useSentenceCheck';
 
 export interface TranscriptionPanelProps {
   doc: VoiceDocument;
@@ -41,6 +44,10 @@ export interface TranscriptionPanelProps {
   onPlayRecording(recording: RecordingInfo): void;
   onDownloadRecording(recording: RecordingInfo): void;
   onDeleteAudio(recording: RecordingInfo): void;
+  sentenceCheck: { status: SentenceCheckStatus; message: string | null };
+  onCheckSentences(): void;
+  onApplySuggestion(segmentId: string, text: string): void;
+  onDismissSuggestion(segmentId: string): void;
 }
 
 const ParagraphIcon = () => (
@@ -147,6 +154,16 @@ function SegmentImpl({
           </button>
         </div>
       </div>
+      {seg.review?.suggestion && seg.review.forText === seg.text && !seg.review.dismissed && (
+        <SentenceSuggestion
+          text={seg.text}
+          suggestion={seg.review.suggestion}
+          reason={seg.review.reason}
+          onApply={(t) => props.onApplySuggestion(seg.id, t)}
+          onDismiss={() => props.onDismissSuggestion(seg.id)}
+        />
+      )}
+      <MedicineSuggestions text={seg.text} onReplace={(t) => props.onEdit(seg.id, t)} className="mt-1 mb-1.5 ml-12" />
     </div>
   );
 }
@@ -177,6 +194,24 @@ export function TranscriptionPanel(props: TranscriptionPanelProps) {
           <PlusIcon />
         </IconButton>
         <div className="flex-1" />
+        <button
+          type="button"
+          onClick={props.onCheckSentences}
+          disabled={props.sentenceCheck.status === 'off' || props.sentenceCheck.status === 'checking' || !doc.segments.length}
+          title={props.sentenceCheck.message ?? 'Look for sentences that may have been misheard'}
+          className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-[12.5px] font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40"
+          data-testid="check-sentences"
+        >
+          {props.sentenceCheck.status === 'checking' ? (
+            <Spinner />
+          ) : (
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="m3 17 2 2 4-4" />
+              <path d="M3 7h18M3 12h18M13 17h8" />
+            </svg>
+          )}
+          <span className="hidden lg:inline">{props.sentenceCheck.status === 'checking' ? 'Checking…' : 'Check sentences'}</span>
+        </button>
         <button
           type="button"
           onClick={async () => {
@@ -212,6 +247,11 @@ export function TranscriptionPanel(props: TranscriptionPanelProps) {
         </IconButton>
       </div>
 
+      {(props.sentenceCheck.status === 'unavailable' || props.sentenceCheck.status === 'error') && props.sentenceCheck.message && (
+        <div className="shrink-0 border-b border-slate-200 bg-slate-50 px-4 py-1.5 text-[12px] text-slate-500" role="status">
+          Sentence check unavailable: {props.sentenceCheck.message}
+        </div>
+      )}
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-5" data-testid="transcript">
         {empty ? (
           <div className="mx-auto mt-10 max-w-sm text-center text-[14px] leading-relaxed text-slate-400">

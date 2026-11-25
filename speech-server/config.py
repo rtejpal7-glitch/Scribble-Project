@@ -63,6 +63,11 @@ class Settings:
     preload: bool = True
     max_audio_seconds: int = 60
     modes: dict[str, ModeConfig] = field(default_factory=dict)
+    # Sentence check (local language model)
+    suggest_backend: str = "ollama"
+    suggest_url: str = ""
+    suggest_model: str = ""
+    suggest_api_key: str = ""
 
 
 DEFAULT_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173"
@@ -86,6 +91,10 @@ def load_settings(env_file: Path | None = None) -> Settings:
         beam_size=_int("BEAM_SIZE", 5),
         preload=_bool("PRELOAD", True),
         max_audio_seconds=_int("MAX_AUDIO_SECONDS", 60),
+        suggest_backend=os.environ.get("SUGGEST_BACKEND", "ollama"),
+        suggest_url=os.environ.get("SUGGEST_URL", ""),
+        suggest_model=os.environ.get("SUGGEST_MODEL", ""),
+        suggest_api_key=os.environ.get("SUGGEST_API_KEY", ""),
     )
     s.modes = {
         # Indian English: multilingual Whisper, English decoding.
