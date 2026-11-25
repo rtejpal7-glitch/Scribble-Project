@@ -40,7 +40,16 @@ export class AudioCapture {
   constructor(private readonly onFrame: (frame: Float32Array) => void) {}
 
   async start(): Promise<void> {
+    // iOS only lets audio start inside the user's tap, so the AudioContext is
+    // created *before* awaiting the permission prompt.
+    const Ctor: AudioContextCtor =
+      window.AudioContext ?? (window as unknown as { webkitAudioContext: AudioContextCtor }).webkitAudioContext;
+    const ctx = new Ctor();
+    this.ctx = ctx;
+    void ctx.resume().catch(() => undefined);
     if (!navigator.mediaDevices?.getUserMedia) {
+      void ctx.close().catch(() => undefined);
+      this.ctx = null;
       throw new SpeechError(
         'unsupported',
         window.isSecureContext
@@ -54,6 +63,8 @@ export class AudioCapture {
         video: false,
       });
     } catch (e) {
+      void ctx.close().catch(() => undefined);
+      this.ctx = null;
       const name = (e as DOMException)?.name;
       if (name === 'NotAllowedError' || name === 'SecurityError')
         throw new SpeechError('permission', 'Microphone permission was denied. Allow microphone access for this site in your browser settings.');
@@ -62,10 +73,6 @@ export class AudioCapture {
       throw new SpeechError('unknown', `Could not start the microphone: ${(e as Error)?.message ?? e}`);
     }
 
-    const Ctor: AudioContextCtor =
-      window.AudioContext ?? (window as unknown as { webkitAudioContext: AudioContextCtor }).webkitAudioContext;
-    const ctx = new Ctor();
-    this.ctx = ctx;
     if (ctx.state === 'suspended') await ctx.resume().catch(() => undefined);
     this.downsampler = new Downsampler(ctx.sampleRate, SPEECH_SAMPLE_RATE);
     const source = ctx.createMediaStreamSource(this.stream);

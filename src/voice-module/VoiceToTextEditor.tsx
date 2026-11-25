@@ -85,6 +85,8 @@ function VoiceInner(props: VoiceToTextEditorProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [playingId, setPlayingId] = useState<string | null>(null);
+  const [nudge, setNudge] = useState(0);
+  const setupRef = useRef<HTMLDivElement>(null);
   const audioEl = useRef<HTMLAudioElement | null>(null);
   const audioUrl = useRef<string | null>(null);
 
@@ -225,6 +227,18 @@ function VoiceInner(props: VoiceToTextEditorProps) {
 
   const caps = provider?.capabilities;
   const available = speech.availability?.available ?? false;
+  // Why recording can't start right now (shown next to the mic, not hidden further down).
+  const blockedReason = live
+    ? null
+    : !provider
+      ? reason ?? 'No speech engine is selected.'
+      : speech.checking && !speech.availability
+        ? null
+        : !available
+          ? speech.availability?.reason ?? 'The speech engine is not available.'
+          : null;
+  const httpsBlocked =
+    typeof location !== 'undefined' && location.protocol === 'https:' && settings.engine === 'server' && settings.serverUrl.startsWith('http:');
   const hasFinal = doc.segments.some((s) => s.source === 'speech' && s.status === 'final');
 
   const controls = (
@@ -243,9 +257,15 @@ function VoiceInner(props: VoiceToTextEditorProps) {
         voiceActive={speech.voiceActive}
         canPause={caps?.pauseResume ?? false}
         showLevel={caps?.levelMeter ?? false}
-        disabled={!provider || (!available && !live)}
+        disabled={false}
         onStart={() => {
           setNotice(null);
+          if (blockedReason) {
+            // Explain instead of doing nothing.
+            setNudge((n) => n + 1);
+            setTimeout(() => setupRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 0);
+            return;
+          }
           void speech.start();
         }}
         onPause={speech.pause}
@@ -258,6 +278,31 @@ function VoiceInner(props: VoiceToTextEditorProps) {
           void speech.stop();
         }}
       />
+
+      {blockedReason && (
+        <div
+          ref={setupRef}
+          key={nudge}
+          role="alert"
+          className={`rounded-xl bg-amber-50 px-3 py-2.5 text-[13px] text-amber-950 ring-1 ring-amber-300 ring-inset ${nudge ? 'animate-[pulse_0.6s_ease-in-out_2]' : ''}`}
+        >
+          <div className="font-semibold">Voice recognition isn't set up yet</div>
+          <p className="mt-0.5 leading-snug">{blockedReason}</p>
+          {httpsBlocked && (
+            <p className="mt-1 leading-snug">
+              This page is https, so a phone or iPad can only use a speech server with an <b>https</b> address. See README §10.4.
+            </p>
+          )}
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button type="button" className="btn-primary h-8 px-3 text-[12.5px]" onClick={() => setSettingsOpen(true)}>
+              Open voice settings
+            </button>
+            <button type="button" className="btn-secondary h-8 px-3 text-[12.5px]" onClick={() => void speech.refreshAvailability()}>
+              Check again
+            </button>
+          </div>
+        </div>
+      )}
 
       {notice && (
         <div className="flex items-start gap-2 rounded-lg bg-blue-50 px-3 py-2 text-[12.5px] text-blue-900 ring-1 ring-blue-200 ring-inset">
