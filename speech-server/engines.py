@@ -17,6 +17,41 @@ from config import MODES, Settings
 from textproc import build_prompt, join_segments, keep_segment
 
 
+def _import_whisper_model():
+    """Import faster_whisper.WhisperModel, tolerating a blocked PyAV.
+
+    faster-whisper imports PyAV (``av``) at start-up, but only uses it to
+    decode audio *files*. This server always hands it decoded 16 kHz samples,
+    so PyAV is never needed. On Windows, Smart App Control / App Control
+    policies can block PyAV's unsigned DLLs ("DLL load failed ... An
+    Application Control policy has blocked this file"); in that case we put a
+    placeholder module in its place so the rest of faster-whisper can load.
+    """
+    import sys
+    import types
+
+    try:
+        import av  # noqa: F401
+    except ImportError as exc:
+        reason = str(exc)
+        for name in [n for n in sys.modules if n == "av" or n.startswith("av.")]:
+            del sys.modules[name]
+        placeholder = types.ModuleType("av")
+        placeholder.__inkflow_placeholder__ = True  # type: ignore[attr-defined]
+
+        def _unavailable(*_a, **_k):
+            raise RuntimeError(f"PyAV is unavailable on this machine ({reason}); file decoding is disabled")
+
+        placeholder.open = _unavailable  # type: ignore[attr-defined]
+        placeholder.__getattr__ = lambda _name: _unavailable  # type: ignore[attr-defined]
+        sys.modules["av"] = placeholder
+        print("Note: PyAV could not be loaded; continuing without it (not needed by this server).", flush=True)
+
+    from faster_whisper import WhisperModel  # imported lazily: heavy
+
+    return WhisperModel
+
+
 class EngineBusy(Exception):
     """Raised for interim requests when the model is already working."""
 
@@ -56,8 +91,7 @@ class FasterWhisperEngine:
                 return self._models[model_name]
             self._state[model_name] = {"loading": True, "error": None}
         try:
-            from faster_whisper import WhisperModel  # imported lazily: heavy
-
+            WhisperModel = _import_whisper_model()
             s = self.settings
             model = WhisperModel(
                 model_name,
