@@ -22,3 +22,9 @@ python server.py
 - **Tests** (no models needed): `python -m unittest discover -s tests -t .`
 
 `tests/stub_engine.py` is a deterministic stand-in used **only** by automated tests (`--engine tests.stub_engine:StubEngine`). It does not recognise speech.
+
+## NVIDIA GPU on Windows
+
+1. `pip install -r requirements-gpu.txt` (inside the activated `.venv`). This installs cuBLAS and cuDNN into the virtual environment; the server adds them to the DLL search path automatically.
+2. In `.env`: `WHISPER_DEVICE=cuda` and `WHISPER_COMPUTE_TYPE=int8_float16` (lower memory, good for 4–6 GB cards) or `float16`.
+3. Start the server. It prints `Loaded <model> on CUDA (...)` for each model. If the libraries still cannot be found it prints a warning and falls back to the CPU.

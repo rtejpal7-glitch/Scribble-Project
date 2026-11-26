@@ -17,6 +17,42 @@ from config import MODES, Settings
 from textproc import build_prompt, join_segments, keep_segment
 
 
+_dll_dirs_added = False
+
+
+def _add_nvidia_dll_dirs() -> None:
+    """Windows: make CUDA libraries installed with pip (nvidia-cublas-cu12,
+    nvidia-cudnn-cu12) findable. Their DLLs live in site-packages/nvidia/*/bin,
+    which is not on the DLL search path by default."""
+    global _dll_dirs_added
+    import os
+    import sys
+
+    if _dll_dirs_added or sys.platform != "win32":
+        return
+    _dll_dirs_added = True
+    import site
+
+    roots = list(site.getsitepackages()) + [site.getusersitepackages()]
+    found = []
+    for root in roots:
+        base = os.path.join(root, "nvidia")
+        if not os.path.isdir(base):
+            continue
+        for pkg in sorted(os.listdir(base)):
+            bin_dir = os.path.join(base, pkg, "bin")
+            if os.path.isdir(bin_dir):
+                found.append(bin_dir)
+    for d in found:
+        try:
+            os.add_dll_directory(d)
+        except OSError:
+            pass
+    if found:
+        os.environ["PATH"] = os.pathsep.join(found + [os.environ.get("PATH", "")])
+        print(f"Using NVIDIA libraries from: {', '.join(found)}", flush=True)
+
+
 def _import_whisper_model():
     """Import faster_whisper.WhisperModel, tolerating a blocked PyAV.
 
@@ -30,6 +66,7 @@ def _import_whisper_model():
     import sys
     import types
 
+    _add_nvidia_dll_dirs()
     try:
         import av  # noqa: F401
     except ImportError as exc:
@@ -100,6 +137,8 @@ class FasterWhisperEngine:
                 cpu_threads=s.cpu_threads,
                 download_root=s.model_dir or None,
             )
+            device = getattr(getattr(model, "model", None), "device", s.device)
+            print(f"Loaded {model_name} on {str(device).upper()} ({s.compute_type})", flush=True)
         except Exception as e:  # noqa: BLE001 - surface any load failure to /health
             with self._guard:
                 self._state[model_name] = {"loading": False, "error": f"{type(e).__name__}: {e}"}

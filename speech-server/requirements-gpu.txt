@@ -1,0 +1,6 @@
+# Optional: NVIDIA GPU support (CUDA 12 + cuDNN 9, as required by CTranslate2 4.x).
+# Needs an NVIDIA driver that supports CUDA 12. Install after requirements.txt:
+#   pip install -r requirements-gpu.txt
+# Then set WHISPER_DEVICE=cuda and WHISPER_COMPUTE_TYPE=int8_float16 (or float16) in .env.
+nvidia-cublas-cu12
+nvidia-cudnn-cu12==9.*
