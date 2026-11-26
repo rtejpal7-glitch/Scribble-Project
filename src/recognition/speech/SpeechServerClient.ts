@@ -34,6 +34,17 @@ function b64utf8(s: string): string {
   return btoa(bin);
 }
 
+const TRANSCRIBE_TIMEOUT_MS = 180_000;
+
+function isLoopback(url: string): boolean {
+  try {
+    const host = new URL(url).hostname;
+    return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host.endsWith('.localhost');
+  } catch {
+    return false;
+  }
+}
+
 /** HTTP client for speech-server/server.py. The token is entered by the user and stays in this browser. */
 export class SpeechServerClient {
   constructor(
@@ -46,9 +57,13 @@ export class SpeechServerClient {
     return this.baseUrl.replace(/\/+$/, '') + path;
   }
 
-  private async request(path: string, init: RequestInit, signal?: AbortSignal): Promise<Response> {
+  private async request(path: string, init: RequestInit, signal?: AbortSignal, timeoutMs?: number): Promise<Response> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs ?? this.timeoutMs);
     const onAbort = () => controller.abort();
     signal?.addEventListener('abort', onAbort);
     try {
@@ -59,7 +74,13 @@ export class SpeechServerClient {
       });
     } catch {
       if (signal?.aborted) throw new SpeechError('aborted', 'Cancelled.');
-      if (location.protocol === 'https:' && this.baseUrl.startsWith('http:'))
+      if (timedOut)
+        throw new SpeechError(
+          'network',
+          'The speech server took too long to answer. The first recording after starting the server is slow while the model loads; try again in a minute.',
+        );
+      // Browsers allow https pages to call http://localhost, so only warn for other hosts.
+      if (location.protocol === 'https:' && this.baseUrl.startsWith('http:') && !isLoopback(this.baseUrl))
         throw new SpeechError('network', 'This page is https, so the browser blocks an http speech server. Use an https server URL (see README).');
       throw new SpeechError('network', `Cannot reach the speech server at ${this.baseUrl}.`);
     } finally {
@@ -117,7 +138,13 @@ export class SpeechServerClient {
     const params = new URLSearchParams({ mode: LANGUAGE_TO_MODE[language], interim: options.interim ? '1' : '0' });
     const headers: Record<string, string> = { 'Content-Type': 'audio/wav' };
     if (options.vocabulary?.trim()) headers['X-Vocabulary'] = b64utf8(options.vocabulary.trim());
-    const res = await this.request(`/v1/transcribe?${params}`, { method: 'POST', body: wav, headers }, options.signal);
+    // Generous timeout: on a CPU the first request also waits for the model to load.
+    const res = await this.request(
+      `/v1/transcribe?${params}`,
+      { method: 'POST', body: wav, headers },
+      options.signal,
+      TRANSCRIBE_TIMEOUT_MS,
+    );
     if (!res.ok) await this.fail(res);
     return (await res.json()) as ServerTranscription;
   }
