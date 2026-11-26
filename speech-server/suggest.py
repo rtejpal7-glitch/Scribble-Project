@@ -112,7 +112,12 @@ def _post_json(url: str, payload: dict, timeout: float, headers: dict | None = N
             ) from e
         raise SuggestError(f"Language model server returned HTTP {e.code}.") from e
     except (urllib.error.URLError, TimeoutError, OSError) as e:
-        raise SuggestError(f"Cannot reach the language model at {url}: {getattr(e, 'reason', e)}") from e
+        reason = getattr(e, "reason", e)
+        if "timed out" in str(reason).lower():
+            raise SuggestError(
+                "The language model took too long to answer. It may still be loading; try again in a minute."
+            ) from e
+        raise SuggestError(f"Cannot reach the language model at {url}: {reason}") from e
     except json.JSONDecodeError as e:
         raise SuggestError("Language model server returned invalid JSON.") from e
 
@@ -134,11 +139,21 @@ class OllamaSuggester:
 
     name = "ollama"
 
-    def __init__(self, url: str, model: str, timeout: float = 30.0):
+    # The first request also loads the model into memory, which can take a
+    # minute on a laptop; later requests are fast while the model stays loaded.
+    def __init__(self, url: str, model: str, timeout: float = 120.0):
         self.url, self.model, self.timeout = url.rstrip("/"), model, timeout
 
     def describe(self) -> dict:
         return {"backend": self.name, "model": self.model, "enabled": True}
+
+    def warm_up(self) -> None:
+        """Load the model now (an empty prompt only loads it), so the first check is quick."""
+        try:
+            _post_json(f"{self.url}/api/generate", {"model": self.model, "keep_alive": "30m"}, self.timeout)
+            print(f"Sentence check model {self.model} is loaded.", flush=True)
+        except SuggestError as e:
+            print(f"Sentence check model not ready yet: {e}", flush=True)
 
     def suggest(self, language, sentences, context, medicines):
         out = _post_json(
@@ -148,6 +163,7 @@ class OllamaSuggester:
                 "messages": _messages(language, sentences, context, medicines),
                 "stream": False,
                 "format": "json",
+                "keep_alive": "30m",
                 "options": {"temperature": 0},
             },
             self.timeout,

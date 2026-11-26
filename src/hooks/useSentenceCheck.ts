@@ -68,7 +68,7 @@ export function useSentenceCheck(doc: VoiceDocument | null, dispatch: Dispatch<V
       batch.forEach((s) => inFlight.current.add(s.id));
       setStatus('checking');
       try {
-        const client = new SpeechServerClient(settings.serverUrl, settings.serverToken, 45000);
+        const client = new SpeechServerClient(settings.serverUrl, settings.serverToken, 150000);
         const result = await client.suggest(
           d.language,
           batch.map((s) => ({ id: s.id, text: s.text })),

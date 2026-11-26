@@ -263,6 +263,8 @@ def main(argv: list[str] | None = None) -> int:
         threading.Thread(target=engine.preload, name="preload", daemon=True).start()
 
     suggester = load_suggester(settings.suggest_backend, settings.suggest_url, settings.suggest_model, settings.suggest_api_key)
+    if suggester is not None and settings.preload and hasattr(suggester, "warm_up"):
+        threading.Thread(target=suggester.warm_up, name="suggest-warmup", daemon=True).start()
     httpd = build_server(settings, engine, suggester)
     scheme = "https" if settings.ssl_certfile else "http"
     log.info("InkFlow speech server on %s://%s:%d (engine: %s)", scheme, settings.host, settings.port, engine.name)
