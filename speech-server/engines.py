@@ -131,8 +131,34 @@ class FasterWhisperEngine:
             }
         return {"engine": self.name, "device": self.settings.device, "modes": modes}
 
+    # -- GPU -> CPU fallback ------------------------------------------------
+    def _switch_to_cpu(self, reason: Exception) -> None:
+        """NVIDIA driver present but CUDA libraries (cuBLAS/cuDNN) missing: use the CPU."""
+        with self._guard:
+            if self.settings.device == "cpu":
+                return
+            print(
+                "GPU libraries are missing (" + str(reason).strip().splitlines()[0] + ").\n"
+                "Switching to the CPU. To skip this, set WHISPER_DEVICE=cpu and WHISPER_COMPUTE_TYPE=int8 in .env.",
+                flush=True,
+            )
+            self.settings.device = "cpu"
+            if self.settings.compute_type in ("default", "auto", "float16", "int8_float16"):
+                self.settings.compute_type = "int8"
+            self._models.clear()
+            self._state.clear()
+
     # -- recognition -------------------------------------------------------
     def transcribe(self, audio: np.ndarray, mode: str, interim: bool, vocabulary: str) -> dict:
+        try:
+            return self._transcribe(audio, mode, interim, vocabulary)
+        except (RuntimeError, OSError, EngineError) as e:
+            if self.settings.device == "cpu" or not _is_cuda_library_error(e):
+                raise
+            self._switch_to_cpu(e)
+            return self._transcribe(audio, mode, interim, vocabulary)
+
+    def _transcribe(self, audio: np.ndarray, mode: str, interim: bool, vocabulary: str) -> dict:
         cfg = self.settings.modes[mode]
         model = self._models.get(cfg.model) or self._load(cfg.model)
         lock = self._locks[cfg.model]
@@ -175,6 +201,11 @@ class FasterWhisperEngine:
             }
         finally:
             lock.release()
+
+
+def _is_cuda_library_error(e: BaseException) -> bool:
+    text = f"{e} {e.__cause__ or ''}".lower()
+    return any(k in text for k in ("cublas", "cudnn", "cudart", "cuda driver", "cuda failed", "no cuda", "libcuda", "nvcuda"))
 
 
 def load_engine(spec: str, settings: Settings) -> Engine:

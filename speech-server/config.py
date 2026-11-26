@@ -10,16 +10,24 @@ MODES = ("en", "hi", "hinglish")
 
 
 def load_dotenv(path: Path) -> None:
-    """Minimal .env loader (KEY=VALUE lines). Existing environment variables win."""
+    """Minimal .env loader (KEY=VALUE lines).
+
+    Variables already set in the environment win. Within the file the *last*
+    line for a key wins, so a setting added at the bottom overrides the
+    example value higher up.
+    """
     if not path.exists():
         return
-    for raw in path.read_text(encoding="utf-8").splitlines():
+    values: dict[str, str] = {}
+    for raw in path.read_text(encoding="utf-8-sig").splitlines():
         line = raw.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
         key = key.strip()
         value = value.strip().strip('"').strip("'")
+        values[key] = value
+    for key, value in values.items():
         os.environ.setdefault(key, value)
 
 
