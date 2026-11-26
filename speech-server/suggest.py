@@ -108,7 +108,7 @@ def _post_json(url: str, payload: dict, timeout: float, headers: dict | None = N
         if e.code == 404 and model:
             raise SuggestError(
                 f"The language model '{model}' is not installed. Run: ollama pull {model} "
-                f"(or set SUGGEST_MODEL in speech-server/.env to a model you have; 'ollama list' shows them)."
+                f"(or change SUGGEST_MODEL / REPORT_MODEL in speech-server/.env to a model you have; 'ollama list' shows them)."
             ) from e
         raise SuggestError(f"Language model server returned HTTP {e.code}.") from e
     except (urllib.error.URLError, TimeoutError, OSError) as e:

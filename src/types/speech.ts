@@ -1,3 +1,5 @@
+import type { ClinicalReport } from './report';
+
 /**
  * Voice-to-text data model. Deliberately separate from the handwriting model:
  * a voice document holds transcript segments and recording metadata, never ink.
@@ -90,6 +92,8 @@ export interface VoiceDocument {
   segments: TranscriptSegment[];
   recordings: RecordingInfo[];
   evaluations: EvaluationResult[];
+  /** Consultation report drafted from this transcript (edited by the doctor). */
+  report?: ClinicalReport;
 }
 
 /** What a host application (e.g. ClinicFlow) receives. */
@@ -105,6 +109,7 @@ export interface VoiceSnapshot {
   hasManualEdits: boolean;
   segments: TranscriptSegment[];
   recordings: RecordingInfo[];
+  report?: ClinicalReport;
 }
 
 /* ------------------------------ live session ------------------------------ */

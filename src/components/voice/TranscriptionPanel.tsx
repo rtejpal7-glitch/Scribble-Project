@@ -48,6 +48,10 @@ export interface TranscriptionPanelProps {
   onCheckSentences(): void;
   onApplySuggestion(segmentId: string, text: string): void;
   onDismissSuggestion(segmentId: string): void;
+  /** Opens the consultation report for this dictation. */
+  onOpenReport?(): void;
+  hasReport?: boolean;
+  reportBusy?: boolean;
 }
 
 const ParagraphIcon = () => (
@@ -194,6 +198,25 @@ export function TranscriptionPanel(props: TranscriptionPanelProps) {
           <PlusIcon />
         </IconButton>
         <div className="flex-1" />
+        {props.onOpenReport && (
+          <button
+            type="button"
+            onClick={props.onOpenReport}
+            title="Turn this dictation into a clinical note and prescription"
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-[12.5px] font-medium text-blue-700 hover:bg-blue-50"
+            data-testid="open-report"
+          >
+            {props.reportBusy ? (
+              <Spinner />
+            ) : (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" />
+                <path d="M14 3v5h5M9 13h6M9 17h4" />
+              </svg>
+            )}
+            <span className="hidden sm:inline">{props.reportBusy ? 'Writing report…' : props.hasReport ? 'Report' : 'Create report'}</span>
+          </button>
+        )}
         <button
           type="button"
           onClick={props.onCheckSentences}

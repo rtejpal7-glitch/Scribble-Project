@@ -76,6 +76,10 @@ class Settings:
     suggest_url: str = ""
     suggest_model: str = ""
     suggest_api_key: str = ""
+    # Consultation report (local language model; same server as the sentence check by default)
+    report_backend: str = "ollama"
+    report_url: str = ""
+    report_model: str = ""
 
 
 DEFAULT_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173"
@@ -103,6 +107,9 @@ def load_settings(env_file: Path | None = None) -> Settings:
         suggest_url=os.environ.get("SUGGEST_URL", ""),
         suggest_model=os.environ.get("SUGGEST_MODEL", ""),
         suggest_api_key=os.environ.get("SUGGEST_API_KEY", ""),
+        report_backend=os.environ.get("REPORT_BACKEND", os.environ.get("SUGGEST_BACKEND", "ollama")),
+        report_url=os.environ.get("REPORT_URL", os.environ.get("SUGGEST_URL", "")),
+        report_model=os.environ.get("REPORT_MODEL", "qwen2.5:7b-instruct"),
     )
     s.modes = {
         # Indian English: multilingual Whisper, English decoding.

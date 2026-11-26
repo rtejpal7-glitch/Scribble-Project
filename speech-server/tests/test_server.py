@@ -22,6 +22,8 @@ from config import Settings, load_settings  # noqa: E402
 from server import build_server, decode_wav  # noqa: E402
 from tests.stub_engine import StubEngine  # noqa: E402
 from tests.stub_suggester import StubSuggester  # noqa: E402
+from tests.stub_reporter import StubReporter  # noqa: E402
+from report import _find, _norm_text, _numbers_in  # noqa: E402
 from suggest import validate  # noqa: E402
 from textproc import build_prompt, keep_segment  # noqa: E402
 from wer import cer, wer  # noqa: E402
@@ -50,7 +52,7 @@ class ServerTest(unittest.TestCase):
         cls.settings.token = "secret-token"
         cls.settings.allowed_origins = ["http://localhost:5173"]
         cls.engine = StubEngine(cls.settings)
-        cls.httpd = build_server(cls.settings, cls.engine, StubSuggester())
+        cls.httpd = build_server(cls.settings, cls.engine, StubSuggester(), StubReporter())
         cls.port = cls.httpd.server_address[1]
         threading.Thread(target=cls.httpd.serve_forever, daemon=True).start()
 
@@ -141,7 +143,45 @@ class ServerTest(unittest.TestCase):
         self.assertTrue(health["suggest"]["enabled"])
 
 
+    def test_report(self):
+        transcript = (
+            "Patient Rahul, 32 saal. Do hafte se itching ho rahi hai, raat ko zyada. "
+            "Dono forearms pe red papules hain. Allergic dermatitis lag raha hai. "
+            "Cetirizine 10 mg raat ko khane ke baad paanch din. Mometasone cream din mein do baar do hafte. "
+            "CBC karwa lo. Garam paani se mat nahana. Do hafte baad follow up."
+        )
+        status, _, body = self._json("/v1/report", {"language": "hinglish", "transcript": transcript, "medicines": ["Cetirizine"]})
+        self.assertEqual(status, 200, body)
+        r = body["report"]
+        self.assertEqual(r["patient"], {"name": "Rahul", "age": "32", "sex": "male"})
+        self.assertEqual([c["complaint"] for c in r["chief_complaints"]], ["Itching", "Rash on arms"])
+        dx = {d["text"]: d["flags"] for d in r["diagnosis"]}
+        self.assertEqual(dx["Allergic dermatitis"], [])
+        self.assertEqual(dx["Psoriasis"], ["source-not-found"])  # never said
+        meds = {m["name"]: m["flags"] for m in r["medicines"]}
+        self.assertEqual(meds["Cetirizine"], [])
+        self.assertEqual(meds["Mometasone cream"], [])  # "do hafte" grounds "2 weeks"
+        self.assertIn("name-not-in-transcript", meds["Prednisolone"])
+        self.assertIn("source-not-found", meds["Prednisolone"])
+        self.assertIn("number-not-in-transcript", meds["Prednisolone"])
+        self.assertEqual(r["investigations"], ["CBC"])
+        self.assertEqual(body["model"], "stub-report")
+        self.assertEqual(self._json("/v1/report", {"language": "hinglish", "transcript": "  "})[0], 400)
+        self.assertEqual(self._json("/v1/report", {"language": "xx", "transcript": "a"})[0], 400)
+        status, _, _ = self.req("POST", "/v1/report", b"{}", {"Authorization": "Bearer nope"})
+        self.assertEqual(status, 401)
+        _, _, health = self.req("GET", "/v1/health")
+        self.assertEqual(health["report"]["model"], "stub-report")
+
+
 class TextTest(unittest.TestCase):
+    def test_report_grounding_helpers(self):
+        words = _norm_text("Tab. Paracetamol 650 mg din mein teen baar, ३ दिन").split()
+        self.assertTrue(_find("paracetamol", words, 0.75))
+        self.assertTrue(_find("paracetamole", words, 0.75))  # recognition-style misspelling
+        self.assertFalse(_find("azithromycin", words, 0.75))
+        self.assertEqual(_numbers_in("650 mg teen baar ३ दिन"), {650.0, 3.0})
+
     def test_suggest_validation(self):
         sents = [{"id": "a", "text": "Patient ko fever nahi hai."}, {"id": "b", "text": "Hi why am Rahul."}]
         out = validate(sents, [

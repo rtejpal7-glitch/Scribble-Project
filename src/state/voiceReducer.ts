@@ -6,6 +6,8 @@ import type {
   VoiceDocument,
 } from '../types/speech';
 import { createId } from '../utils/id';
+import type { ClinicalReport } from '../types/report';
+import { normalizeReport } from '../clinical/report';
 
 export function createVoiceDocument(title = 'Untitled dictation', id: string = createId('v_'), language: SpeechLanguage = 'hinglish'): VoiceDocument {
   const now = Date.now();
@@ -24,6 +26,7 @@ export function normalizeVoiceDocument(raw: VoiceDocument): VoiceDocument {
     segments: Array.isArray(raw.segments) ? raw.segments : [],
     recordings: Array.isArray(raw.recordings) ? raw.recordings : [],
     evaluations: Array.isArray(raw.evaluations) ? raw.evaluations : [],
+    report: normalizeReport(raw.report),
   };
 }
 
@@ -105,7 +108,9 @@ export type VoiceAction =
   | { type: 'setReviews'; reviews: Array<{ segmentId: string; forText: string; suggestion: string | null; reason?: string }> }
   | { type: 'dismissReview'; segmentId: string }
   | { type: 'addEvaluation'; result: EvaluationResult }
-  | { type: 'deleteEvaluation'; id: string };
+  | { type: 'deleteEvaluation'; id: string }
+  /** Report edits are not part of the transcript undo history. */
+  | { type: 'setReport'; report: ClinicalReport | null };
 
 function touch(doc: VoiceDocument, patch: Partial<VoiceDocument>): VoiceDocument {
   return { ...doc, ...patch, updatedAt: Date.now() };
@@ -268,5 +273,7 @@ export function voiceReducer(state: VoiceState, action: VoiceAction): VoiceState
       return changed(state, touch(doc, { evaluations: [action.result, ...doc.evaluations] }));
     case 'deleteEvaluation':
       return changed(state, touch(doc, { evaluations: doc.evaluations.filter((e) => e.id !== action.id) }));
+    case 'setReport':
+      return changed(state, touch(doc, { report: action.report ? { ...action.report, updatedAt: Date.now() } : undefined }));
   }
 }

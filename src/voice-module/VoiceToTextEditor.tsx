@@ -12,6 +12,8 @@ import {
 import { useVoiceDocument } from '../hooks/useVoiceDocument';
 import { useSpeechRecognition, type RecorderPhase } from '../hooks/useSpeechRecognition';
 import { useSentenceCheck } from '../hooks/useSentenceCheck';
+import { useReportGenerator } from '../hooks/useReportGenerator';
+import { ReportPanel } from '../components/report/ReportPanel';
 import { useAutosave, type SaveStatus } from '../hooks/useAutosave';
 import { useMediaQuery, useOnlineStatus } from '../hooks/useOnlineStatus';
 import { buildVoiceSnapshot, transcriptText } from '../state/voiceText';
@@ -110,6 +112,8 @@ function VoiceInner(props: VoiceToTextEditorProps) {
   const speech = useSpeechRecognition({ provider, providerReason: reason, settings, storage, stateRef, dispatch });
   const live = speech.phase !== 'idle';
   const sentenceCheck = useSentenceCheck(doc, dispatch, settings, speech.pending > 0);
+  const reportGen = useReportGenerator(stateRef, dispatch, settings);
+  const [reportOpen, setReportOpen] = useState(false);
 
   const cbs = useRef(props);
   cbs.current = props;
@@ -438,6 +442,9 @@ function VoiceInner(props: VoiceToTextEditorProps) {
         dispatch({ type: 'setReviews', reviews: [{ segmentId, forText: text, suggestion: null }] });
       }}
       onDismissSuggestion={(segmentId) => dispatch({ type: 'dismissReview', segmentId })}
+      onOpenReport={() => setReportOpen(true)}
+      hasReport={!!doc.report}
+      reportBusy={reportGen.status === 'generating'}
       onDeleteAudio={async (r) => {
         const ok = await confirm({
           title: 'Delete this recording?',
@@ -461,7 +468,21 @@ function VoiceInner(props: VoiceToTextEditorProps) {
       >
         {controls}
       </aside>
-      <section className="min-h-0 min-w-0 flex-1">{panel}</section>
+      <section className="min-h-0 min-w-0 flex-1">
+        {reportOpen ? (
+          <ReportPanel
+            doc={doc}
+            generator={reportGen}
+            pending={speech.pending}
+            onChange={(report) => dispatch({ type: 'setReport', report })}
+            onBack={() => setReportOpen(false)}
+            onCopy={copyToClipboard}
+            confirm={confirm}
+          />
+        ) : (
+          panel
+        )}
+      </section>
       <VoiceSettingsDialog
         open={settingsOpen}
         settings={settings}

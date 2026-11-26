@@ -397,6 +397,40 @@ It needs the speech server (URL + token in Voice settings) even when recognition
 
 **Limitation:** the suggestion quality depends on the local model and **has not been evaluated** on Hindi or Hinglish clinical dictation. Treat it as a helper and judge it with your own samples. Running the model and Whisper on the same GPU slows both, so the app waits until pending transcription is done before checking.
 
+### 10.12 Consultation report (clinical note + prescription)
+
+Dictate the whole consultation (complaints, history, findings, diagnosis, medicines with dose, frequency and duration, tests, advice, follow-up) in rough Hinglish, Hindi or English. Then tap **Create report** in the transcript toolbar. The speech server's local language model organises it into an editable **clinical note with a prescription table**:
+
+- Patient (name, age and sex are pre-filled if said, otherwise typed), date
+- Chief complaints, history, examination, diagnosis
+- Medicines (name, strength, dose, how often, when, how long, route, instructions)
+- Investigations, advice, follow-up
+
+**Safety by design:**
+- The model is told to use only what was dictated and never add a diagnosis, medicine or dose. The server then **checks every medicine and diagnosis against the transcript**:
+  - **"Name not found in the dictation"**: the medicine name isn't in the transcript.
+  - **"Couldn't find where this was said"**: the quoted source words aren't in the transcript.
+  - **"Number not found in the dictation"**: a strength or duration number wasn't said (number words such as *do / paanch / teen* are understood).
+- Each item shows **Heard: "…"** with the words it came from. Medicine names are also checked against the **medicine dictionary**, with tap-to-fix suggestions.
+- Things the model couldn't understand are listed under **Please check**.
+- Until **"I have reviewed and corrected this report"** is ticked, printouts say **DRAFT — NOT REVIEWED BY THE DOCTOR**.
+- If the transcript changes after the report was made, a banner offers **Create again**. Patient details you typed are kept.
+
+**Print / PDF** uses the browser's print dialog (A4): print on paper, or choose *Save as PDF*. The clinic name, address, phone, doctor's name, qualification and registration number are entered once under **Clinic & doctor details**, saved on this device. **Copy** gives a plain-text version. The report is saved with the dictation, and ClinicFlow receives it in `VoiceSnapshot.report`.
+
+Setup (speech server machine):
+
+```
+ollama pull qwen2.5:7b-instruct
+```
+
+`.env`: `REPORT_MODEL=qwen2.5:7b-instruct` (the default). Restart `python server.py`; its log shows `Reports: ollama (qwen2.5:7b-instruct)`. On a 6 GB GPU that also runs Whisper, a report takes roughly 20–60 s; the first one after starting takes longer while the model loads. `REPORT_BACKEND=off` disables reports.
+
+**Limitations:**
+- Report quality depends on the local model and **has not been evaluated** on real clinic dictations.
+- The model can still put something in the wrong section or misread a dose that *was* said. The checks catch invented items, not every misreading.
+- The doctor must review every report. This feature organises dictation; it does not diagnose or prescribe.
+
 ## 11. Medicine dictionary (voice and handwriting)
 
 The **Medicines** button in the top bar opens a shared dictionary.

@@ -37,6 +37,7 @@ import numpy as np
 
 from config import MODES, Settings, load_settings
 from engines import Engine, EngineBusy, EngineError, load_engine
+from report import Reporter, load_reporter, run_report
 from suggest import SuggestError, Suggester, load_suggester, run_suggest
 
 log = logging.getLogger("inkflow.speech")
@@ -71,7 +72,7 @@ def decode_wav(data: bytes) -> tuple[np.ndarray, float]:
     return audio, audio.size / TARGET_RATE
 
 
-def make_handler(settings: Settings, engine: Engine, suggester: Suggester | None = None):
+def make_handler(settings: Settings, engine: Engine, suggester: Suggester | None = None, reporter: Reporter | None = None):
     max_body = settings.max_audio_seconds * TARGET_RATE * 2 * 2 + 4096  # generous (allows 32-bit / stereo)
 
     class Handler(BaseHTTPRequestHandler):
@@ -145,7 +146,30 @@ def make_handler(settings: Settings, engine: Engine, suggester: Suggester | None
             if not self._authorized():
                 return self._error(401, "unauthorized", "Missing or wrong access token.", started)
             suggest = suggester.describe() if suggester else {"enabled": False, "backend": "off"}
-            return self._send_json(200, {"ok": True, **engine.describe(), "suggest": suggest}, started)
+            report = reporter.describe() if reporter else {"enabled": False, "backend": "off"}
+            return self._send_json(200, {"ok": True, **engine.describe(), "suggest": suggest, "report": report}, started)
+
+        def _report(self, started: float) -> None:
+            length = int(self.headers.get("Content-Length") or 0)
+            if length <= 0 or length > 262144:
+                self.close_connection = True
+                return self._error(413 if length else 400, "bad_body", "Send a JSON body up to 256 KB.", started)
+            try:
+                body = json.loads(self.rfile.read(length).decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                return self._error(400, "bad_json", "Body must be JSON.", started)
+            if reporter is None:
+                return self._error(503, "report_disabled", "Reports are turned off on the server (REPORT_BACKEND=off).", started)
+            try:
+                result = run_report(reporter, body if isinstance(body, dict) else {})
+            except ValueError as e:
+                return self._error(400, "bad_request", str(e), started)
+            except SuggestError as e:
+                return self._error(503, "report_unavailable", str(e), started)
+            except Exception as e:  # noqa: BLE001
+                log.exception("report failed (%s)", type(e).__name__)  # never logs transcript content
+                return self._error(500, "report_error", f"Report failed: {type(e).__name__}", started)
+            return self._send_json(200, result, started)
 
         def _suggest(self, started: float) -> None:
             length = int(self.headers.get("Content-Length") or 0)
@@ -172,11 +196,11 @@ def make_handler(settings: Settings, engine: Engine, suggester: Suggester | None
         def do_POST(self) -> None:  # noqa: N802
             started = time.perf_counter()
             url = urlparse(self.path)
-            if url.path == "/v1/suggest":
+            if url.path in ("/v1/suggest", "/v1/report"):
                 if not self._authorized():
                     self._drain()
                     return self._error(401, "unauthorized", "Missing or wrong access token.", started)
-                return self._suggest(started)
+                return self._suggest(started) if url.path == "/v1/suggest" else self._report(started)
             if url.path != "/v1/transcribe":
                 self._drain()
                 return self._error(404, "not_found", "Unknown endpoint.", started)
@@ -231,8 +255,10 @@ def make_handler(settings: Settings, engine: Engine, suggester: Suggester | None
     return Handler
 
 
-def build_server(settings: Settings, engine: Engine, suggester: Suggester | None = None) -> ThreadingHTTPServer:
-    httpd = ThreadingHTTPServer((settings.host, settings.port), make_handler(settings, engine, suggester))
+def build_server(
+    settings: Settings, engine: Engine, suggester: Suggester | None = None, reporter: Reporter | None = None
+) -> ThreadingHTTPServer:
+    httpd = ThreadingHTTPServer((settings.host, settings.port), make_handler(settings, engine, suggester, reporter))
     httpd.daemon_threads = True
     if settings.ssl_certfile and settings.ssl_keyfile:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -265,13 +291,15 @@ def main(argv: list[str] | None = None) -> int:
     suggester = load_suggester(settings.suggest_backend, settings.suggest_url, settings.suggest_model, settings.suggest_api_key)
     if suggester is not None and settings.preload and hasattr(suggester, "warm_up"):
         threading.Thread(target=suggester.warm_up, name="suggest-warmup", daemon=True).start()
-    httpd = build_server(settings, engine, suggester)
+    reporter = load_reporter(settings.report_backend, settings.report_url, settings.report_model, settings.suggest_api_key)
+    httpd = build_server(settings, engine, suggester, reporter)
     scheme = "https" if settings.ssl_certfile else "http"
     log.info("InkFlow speech server on %s://%s:%d (engine: %s)", scheme, settings.host, settings.port, engine.name)
     for mode, cfg in settings.modes.items():
         log.info("  mode %-8s model=%s language=%s", mode, cfg.model, cfg.language)
     log.info("Allowed origins: %s", ", ".join(settings.allowed_origins) or "(none)")
     log.info("Sentence check: %s", f"{suggester.name} ({suggester.describe().get('model')})" if suggester else "off")
+    log.info("Reports: %s", f"{reporter.name} ({reporter.describe().get('model')})" if reporter else "off")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

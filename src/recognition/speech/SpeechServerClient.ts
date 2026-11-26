@@ -6,6 +6,7 @@ export interface ServerHealth {
   device: string;
   modes: Record<string, { model: string; language: string; loaded: boolean; loading: boolean; error: string | null }>;
   suggest?: { enabled: boolean; backend: string; model?: string };
+  report?: { enabled: boolean; backend: string; model?: string };
 }
 
 export interface SentenceSuggestion {
@@ -35,6 +36,8 @@ function b64utf8(s: string): string {
 }
 
 const TRANSCRIBE_TIMEOUT_MS = 180_000;
+// A report on a laptop can take a minute or two (the model may need loading first).
+const REPORT_TIMEOUT_MS = 330_000;
 
 function isLoopback(url: string): boolean {
   try {
@@ -44,6 +47,8 @@ function isLoopback(url: string): boolean {
     return false;
   }
 }
+
+import type { ServerReport } from '../../types/report';
 
 /** HTTP client for speech-server/server.py. The token is entered by the user and stays in this browser. */
 export class SpeechServerClient {
@@ -128,6 +133,35 @@ export class SpeechServerClient {
       );
     }
     return ((await res.json()) as { suggestions: SentenceSuggestion[] }).suggestions;
+  }
+
+  /** Drafts a consultation report from the transcript on the server's local language model. */
+  async report(
+    language: SpeechLanguage,
+    transcript: string,
+    options: { medicines?: string[]; signal?: AbortSignal } = {},
+  ): Promise<{ report: ServerReport; model: string | null; llm_ms: number }> {
+    const res = await this.request(
+      '/v1/report',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ language, transcript, medicines: options.medicines ?? [] }),
+      },
+      options.signal,
+      REPORT_TIMEOUT_MS,
+    );
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null;
+      if (res.status === 401) throw new SpeechError('auth', 'The speech server rejected the access token.');
+      if (res.status === 404) throw new SpeechError('not-configured', 'This speech server is too old for reports. Update it (git pull) and restart it.');
+      const code = body?.error?.code;
+      throw new SpeechError(
+        code === 'report_disabled' || code === 'report_unavailable' ? 'not-configured' : 'server',
+        body?.error?.message ?? `Report failed (HTTP ${res.status}).`,
+      );
+    }
+    return (await res.json()) as { report: ServerReport; model: string | null; llm_ms: number };
   }
 
   async transcribe(

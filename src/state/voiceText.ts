@@ -23,5 +23,6 @@ export function buildVoiceSnapshot(doc: VoiceDocument): VoiceSnapshot {
     hasManualEdits: doc.segments.some((s) => s.edited || s.source === 'typed'),
     segments: doc.segments,
     recordings: doc.recordings,
+    report: doc.report,
   };
 }
